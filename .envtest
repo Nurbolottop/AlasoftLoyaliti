@@ -1,0 +1,83 @@
+# =============================================================================
+# AlaSoft — шаблон переменных окружения
+# Пометки: [МЕНЯТЬ] обязательно · [УНИКАЛЬНОЕ] не должно совпадать с другими
+# проектами на сервере · [НЕ ТРОГАТЬ] значение фиксировано архитектурой
+# =============================================================================
+
+# Имя проекта: префикс контейнеров, volume и сети   [МЕНЯТЬ][УНИКАЛЬНОЕ]
+COMPOSE_PROJECT_NAME=alasoft
+
+# --- Порты на хосте --------------------------------------------------------
+# Внутри контейнеров порты всегда 8000 / 5432 / 6379   [УНИКАЛЬНОЕ]
+WEB_PORT=8080
+DB_PORT=5435
+REDIS_PORT=6380
+
+# --- Django ----------------------------------------------------------------
+SECRET_KEY=change-me-to-a-long-random-string      # [МЕНЯТЬ][УНИКАЛЬНОЕ]
+ALLOWED_HOSTS=127.0.0.1,localhost                  # [МЕНЯТЬ] домены через запятую
+CSRF_TRUSTED_ORIGINS=http://127.0.0.1,http://localhost  # [МЕНЯТЬ] обязательно со схемой
+LANGUAGE_CODE=ru
+TIME_ZONE=Asia/Bishkek
+LOG_LEVEL=INFO
+
+# --- База данных -----------------------------------------------------------
+POSTGRES_DB=alasoft                                # [МЕНЯТЬ]
+POSTGRES_USER=alasoft_user                         # [МЕНЯТЬ]
+POSTGRES_PASSWORD=change-me                        # [МЕНЯТЬ][УНИКАЛЬНОЕ]
+POSTGRES_HOST=db                                   # [НЕ ТРОГАТЬ] имя сервиса в compose
+POSTGRES_PORT=5432                                 # [НЕ ТРОГАТЬ]
+
+# --- Redis / Celery --------------------------------------------------------
+REDIS_URL=redis://redis:6379/0                     # [НЕ ТРОГАТЬ]
+CELERY_BROKER_URL=redis://redis:6379/0             # [НЕ ТРОГАТЬ]
+CELERY_RESULT_BACKEND=redis://redis:6379/0         # [НЕ ТРОГАТЬ]
+# true только для отладки без воркера: задачи выполняются синхронно
+CELERY_TASK_ALWAYS_EAGER=false
+
+# --- Токены ----------------------------------------------------------------
+ACCESS_TOKEN_LIFETIME_MINUTES=15
+REFRESH_TOKEN_LIFETIME_DAYS=30
+
+# --- OTP и PIN -------------------------------------------------------------
+OTP_CODE_LENGTH=6
+OTP_TTL_SECONDS=300
+OTP_MAX_ATTEMPTS=5
+OTP_RESEND_COOLDOWN_SECONDS=60
+OTP_VERIFICATION_TTL_SECONDS=900
+# ВАЖНО: на проде строго false — иначе код возвращается в ответе API
+OTP_DEBUG_RETURN_CODE=false
+PIN_LENGTH=4
+PIN_MAX_ATTEMPTS=5
+PIN_LOCKOUT_SECONDS=900
+
+# --- Rate limiting ---------------------------------------------------------
+THROTTLE_OTP_PHONE=5/hour
+THROTTLE_OTP_IP=20/hour
+THROTTLE_OTP_VERIFY=10/hour
+THROTTLE_PIN_LOGIN=10/hour
+THROTTLE_DIRECTOR_LOGIN=10/hour
+
+# --- Домен лояльности ------------------------------------------------------
+# Сколько живёт запрос на подтверждение списания
+REDEMPTION_TTL_SECONDS=300
+# За сколько дней предупреждать о сгорании cashback
+CASHBACK_EXPIRY_WARNING_DAYS=7
+# Срок хранения ключей идемпотентности
+IDEMPOTENCY_RETENTION_DAYS=7
+PHONE_DEFAULT_REGION=KG
+LOGO_MAX_SIZE_BYTES=2097152
+
+# --- SMS-провайдер (адаптер) -----------------------------------------------
+# console — код печатается в лог (dev); paysoft — реальная отправка
+SMS_PROVIDER=console
+SMS_PAYSOFT_URL=
+SMS_PAYSOFT_LOGIN=
+SMS_PAYSOFT_PASSWORD=
+SMS_PAYSOFT_SENDER=AlaSoft
+
+# --- Push-провайдер (адаптер) ----------------------------------------------
+# console — push печатается в лог (dev); fcm — Firebase HTTP v1
+PUSH_PROVIDER=console
+FCM_PROJECT_ID=
+FCM_CREDENTIALS_FILE=
