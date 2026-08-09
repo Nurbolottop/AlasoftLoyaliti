@@ -81,3 +81,8 @@ SMS_PAYSOFT_SENDER=AlaSoft
 PUSH_PROVIDER=console
 FCM_PROJECT_ID=
 FCM_CREDENTIALS_FILE=
+
+# --- Ресурсы прод-стенда --------------------------------------------------
+# На сервере без swap имеет смысл снизить (2/2 ≈ 600 МБ на весь стек)
+GUNICORN_WORKERS=3
+CELERY_CONCURRENCY=4

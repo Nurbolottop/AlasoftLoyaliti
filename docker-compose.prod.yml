@@ -26,7 +26,8 @@ services:
       context: .
       dockerfile: docker/Dockerfile
     restart: always
-    command: sh -c "/entrypoint.sh && gunicorn core.wsgi:application --bind 0.0.0.0:8000 --workers 3 --timeout 120 --access-logfile -"
+    # Число воркеров вынесено в .env: на серверах без swap его снижают
+    command: sh -c "/entrypoint.sh && gunicorn core.wsgi:application --bind 0.0.0.0:8000 --workers ${GUNICORN_WORKERS:-3} --timeout 120 --access-logfile -"
     volumes:
       - ./app:/app
     env_file:
@@ -47,7 +48,7 @@ services:
       context: .
       dockerfile: docker/Dockerfile
     restart: always
-    command: celery -A core worker -l info --concurrency=4
+    command: celery -A core worker -l info --concurrency=${CELERY_CONCURRENCY:-4}
     volumes:
       - ./app:/app
     env_file:
