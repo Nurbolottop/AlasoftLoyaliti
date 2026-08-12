@@ -280,6 +280,12 @@ OTP_VERIFICATION_TTL_SECONDS = int(os.getenv('OTP_VERIFICATION_TTL_SECONDS', 900
 # В dev удобно видеть код в ответе; в проде обязательно false.
 OTP_DEBUG_RETURN_CODE = os.getenv('OTP_DEBUG_RETURN_CODE', 'false').lower() == 'true'
 
+# ВРЕМЕННО, пока не подключён SMS-провайдер: фиксированный код подтверждения
+# вместо случайного. Пустое значение (по умолчанию) = обычный случайный OTP.
+# Пока переменная задана, подтвердить номер может кто угодно — снимать сразу
+# после подключения SMS.
+OTP_STATIC_CODE = os.getenv('OTP_STATIC_CODE', '').strip()
+
 PIN_LENGTH = int(os.getenv('PIN_LENGTH', 4))
 PIN_MAX_ATTEMPTS = int(os.getenv('PIN_MAX_ATTEMPTS', 5))
 PIN_LOCKOUT_SECONDS = int(os.getenv('PIN_LOCKOUT_SECONDS', 900))

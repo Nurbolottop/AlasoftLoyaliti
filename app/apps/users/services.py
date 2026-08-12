@@ -1,5 +1,6 @@
 """OTP, PIN и выдача токенов (ТЗ backend §5)."""
 
+import logging
 import secrets
 from datetime import timedelta
 
@@ -15,8 +16,23 @@ from apps.notifications.models import NotificationEvent
 from apps.notifications.services import send_sms
 from apps.users.models import OtpChallenge, OtpPurpose, OtpStatus, Role, User, UserDevice
 
+logger = logging.getLogger('alasoft.auth')
+
 
 def _generate_code() -> str:
+    """Случайный OTP; при заданном OTP_STATIC_CODE — фиксированный код.
+
+    Статический код — временная мера на период без SMS-провайдера. Всё
+    остальное (хранение только хеша, TTL, счётчик попыток, rate limiting)
+    работает как обычно.
+    """
+    if settings.OTP_STATIC_CODE:
+        logger.warning(
+            'OTP_STATIC_CODE активен: подтверждение номера проходит по '
+            'фиксированному коду. Отключить после подключения SMS-провайдера.'
+        )
+        return settings.OTP_STATIC_CODE
+
     length = settings.OTP_CODE_LENGTH
     return ''.join(str(secrets.randbelow(10)) for _ in range(length))
 

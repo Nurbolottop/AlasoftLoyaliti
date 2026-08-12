@@ -47,6 +47,10 @@ OTP_RESEND_COOLDOWN_SECONDS=60
 OTP_VERIFICATION_TTL_SECONDS=900
 # ВАЖНО: на проде строго false — иначе код возвращается в ответе API
 OTP_DEBUG_RETURN_CODE=false
+# ВРЕМЕННО: фиксированный код подтверждения вместо SMS (например 1234).
+# Пустое значение = обычный случайный OTP. Пока задан — подтвердить чужой
+# номер может кто угодно. Очистить сразу после подключения SMS_PROVIDER.
+OTP_STATIC_CODE=
 PIN_LENGTH=4
 PIN_MAX_ATTEMPTS=5
 PIN_LOCKOUT_SECONDS=900
