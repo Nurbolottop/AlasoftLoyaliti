@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AlaSoft — панель директора</title>
+<link rel="stylesheet" href="/style.css?v=1">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎯</text></svg>">
+</head>
+<body>
+
+<!-- ЭКРАН ВХОДА -->
+<div id="login-screen" class="login-wrap">
+  <form class="login-card" id="login-form">
+    <div class="logo">AlaSoft</div>
+    <p class="login-sub">Панель директора платформы</p>
+    <label>Телефон
+      <input type="tel" id="login-phone" placeholder="+996700000001" autocomplete="username" required>
+    </label>
+    <label>Пароль
+      <input type="password" id="login-password" autocomplete="current-password" required>
+    </label>
+    <div class="alert error" id="login-error" hidden></div>
+    <button type="submit" class="btn primary wide" id="login-btn">Войти</button>
+  </form>
+</div>
+
+<!-- ОСНОВНОЙ ИНТЕРФЕЙС -->
+<div id="app" hidden>
+  <aside class="sidebar">
+    <div class="logo small">AlaSoft</div>
+    <nav>
+      <a href="#/dashboard" data-nav="dashboard"><span>📊</span> Дашборд</a>
+      <a href="#/organizations" data-nav="organizations"><span>🏢</span> Организации</a>
+      <a href="#/users" data-nav="users"><span>👤</span> Пользователи</a>
+      <a href="#/transactions" data-nav="transactions"><span>📒</span> Транзакции</a>
+      <a href="#/statistics" data-nav="statistics"><span>📈</span> Статистика</a>
+      <a href="#/audit" data-nav="audit"><span>🛡️</span> Аудит</a>
+    </nav>
+    <div class="sidebar-foot">
+      <div class="who" id="who"></div>
+      <button class="btn ghost wide" id="logout-btn">Выйти</button>
+    </div>
+  </aside>
+
+  <main class="content">
+    <header class="topbar">
+      <h1 id="page-title">Дашборд</h1>
+      <div id="page-actions"></div>
+    </header>
+    <div id="view"></div>
+  </main>
+</div>
+
+<div class="modal-backdrop" id="modal" hidden>
+  <div class="modal-card">
+    <div class="modal-head">
+      <h2 id="modal-title"></h2>
+      <button class="icon-btn" id="modal-close">✕</button>
+    </div>
+    <div id="modal-body"></div>
+  </div>
+</div>
+
+<div id="toast" class="toast" hidden></div>
+
+<script src="/app.js?v=1"></script>
+</body>
+</html>
