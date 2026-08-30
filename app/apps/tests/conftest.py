@@ -31,6 +31,16 @@ class APIClient(BaseAPIClient):
         return response
 
 
+@pytest.fixture(autouse=True)
+def clear_throttle_cache():
+    """Счётчики rate limiting живут в кеше и иначе протекают между тестами."""
+    from django.core.cache import cache
+
+    cache.clear()
+    yield
+    cache.clear()
+
+
 @pytest.fixture
 def api():
     return APIClient()
@@ -84,7 +94,9 @@ def visit_org(db, category, director):
         name='Кофейня', slug='coffee', category=category,
         loyalty_type=LoyaltyType.VISIT, created_by=director,
     )
-    VisitProgram.objects.create(organization=organization, target_visits=5, reward_count=1)
+    # программу уже создал сигнал организации — здесь задаём параметры
+    VisitProgram.objects.update_or_create(
+        organization=organization, defaults={'target_visits': 5, 'reward_count': 1})
     return organization
 
 
@@ -94,11 +106,13 @@ def cashback_org(db, category, director):
         name='Маркет', slug='market', category=category,
         loyalty_type=LoyaltyType.CASHBACK, created_by=director,
     )
-    CashbackProgram.objects.create(
+    CashbackProgram.objects.update_or_create(
         organization=organization,
-        cashback_rate_bps=500,        # 5%
-        max_spend_percent_bps=3000,   # 30%
-        expiry_days=90,
+        defaults={
+            'cashback_rate_bps': 500,        # 5%
+            'max_spend_percent_bps': 3000,   # 30%
+            'expiry_days': 90,
+        },
     )
     return organization
 

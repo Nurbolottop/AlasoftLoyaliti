@@ -54,6 +54,14 @@ class RegisterCompleteSerializer(serializers.Serializer):
     device = DeviceSerializer(required=False)
 
 
+class OtpLoginSerializer(serializers.Serializer):
+    """Вход по подтверждённому SMS-коду, без изменения PIN."""
+
+    phone = PhoneField()
+    verification_token = serializers.CharField(max_length=64, write_only=True)
+    device = DeviceSerializer(required=False)
+
+
 class PinLoginSerializer(serializers.Serializer):
     phone = PhoneField()
     pin = PinField()

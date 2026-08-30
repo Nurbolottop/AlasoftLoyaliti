@@ -46,7 +46,7 @@ def test_cashback_is_not_presented_as_single_wallet(
         name='Второй маркет', slug='second-market', category=category,
         loyalty_type=LoyaltyType.CASHBACK, created_by=director,
     )
-    CashbackProgram.objects.create(organization=second)
+    CashbackProgram.objects.get_or_create(organization=second)
 
     give_cashback(client_user, cashback_org, 100 * SOM)
     give_cashback(client_user, second, 200 * SOM)

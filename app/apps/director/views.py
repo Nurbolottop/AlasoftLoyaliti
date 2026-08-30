@@ -42,6 +42,7 @@ from apps.organizations.models import (
     VisitProgram,
 )
 from apps.organizations.serializers import CategorySerializer, OrganizationDirectorSerializer
+from apps.organizations.services import update_loyalty_program
 from apps.users.models import Role, User
 
 
@@ -97,10 +98,15 @@ class OrganizationListCreateView(DirectorBaseView):
 
         organization = Organization.objects.create(created_by=request.user, **data)
 
-        if organization.loyalty_type == LoyaltyType.VISIT:
-            VisitProgram.objects.create(organization=organization, **(visit_data or {}))
-        else:
-            CashbackProgram.objects.create(organization=organization, **(cashback_data or {}))
+        # Запись программы создаёт сигнал организации; здесь только применяем
+        # присланные параметры — общий код с PATCH /admin/program.
+        update_loyalty_program(
+            organization=organization,
+            visit_data=visit_data,
+            cashback_data=cashback_data,
+            actor=request.user,
+            request=request,
+        )
 
         log_action(
             AuditAction.ORGANIZATION_CREATED, actor=request.user, request=request,
@@ -148,30 +154,21 @@ class OrganizationDetailView(DirectorBaseView):
             'status': organization.status,
         }
 
-        if new_type and new_type != organization.loyalty_type:
-            # Смена типа программы после появления транзакций запрещена (§6).
-            if Transaction.objects.filter(organization=organization).exists():
-                raise ConflictError(
-                    code=ErrorCode.LOYALTY_TYPE_LOCKED,
-                    message='Нельзя сменить тип программы: по организации уже есть транзакции',
-                )
-
+        data.pop('loyalty_type', None)
         for field, value in data.items():
             setattr(organization, field, value)
         organization.save()
 
-        if organization.loyalty_type == LoyaltyType.VISIT:
-            program, _ = VisitProgram.objects.get_or_create(organization=organization)
-            if visit_data:
-                for field, value in visit_data.items():
-                    setattr(program, field, value)
-                program.save()
-        else:
-            program, _ = CashbackProgram.objects.get_or_create(organization=organization)
-            if cashback_data:
-                for field, value in cashback_data.items():
-                    setattr(program, field, value)
-                program.save()
+        # Смена типа и параметров — общий код с PATCH /admin/program,
+        # включая запрет смены типа при существующих транзакциях (§6).
+        update_loyalty_program(
+            organization=organization,
+            loyalty_type=new_type,
+            visit_data=visit_data,
+            cashback_data=cashback_data,
+            actor=request.user,
+            request=request,
+        )
 
         log_action(
             AuditAction.ORGANIZATION_UPDATED, actor=request.user, request=request,
@@ -179,12 +176,6 @@ class OrganizationDetailView(DirectorBaseView):
             before=before,
             after={'name': organization.name, 'loyalty_type': organization.loyalty_type},
         )
-        if visit_data or cashback_data:
-            log_action(
-                AuditAction.PROGRAM_UPDATED, actor=request.user, request=request,
-                entity_type='Organization', entity_id=organization.id, organization=organization,
-                after=visit_data or cashback_data,
-            )
 
         organization.refresh_from_db()
         return Response(OrganizationDirectorSerializer(organization, context={'request': request}).data)

@@ -223,3 +223,74 @@ def test_system_check_warns_about_static_code(settings):
     settings.OTP_STATIC_CODE = '1234'
     warnings = [w for w in run_checks() if getattr(w, 'id', '') == 'users.W001']
     assert warnings, 'manage.py check должен предупреждать о фиксированном OTP'
+
+
+# --- вход существующего пользователя по SMS (запрос Android-команды) ---
+
+OTP_LOGIN = '/api/v1/auth/otp/login'
+
+
+def _verified_token(api, phone, purpose='REGISTER'):
+    challenge_id, code = _otp(api, phone, purpose=purpose)
+    r = post(api, OTP_VERIFY, {'challenge_id': challenge_id, 'phone': phone, 'code': code})
+    return r.data['data']
+
+
+def test_otp_login_returns_tokens_without_touching_pin(api, client_user):
+    pin_before = client_user.pin_hash
+    data = _verified_token(api, client_user.phone)
+    assert data['purpose'] == 'LOGIN'   # REGISTER на известном номере стал LOGIN
+
+    r = post(api, OTP_LOGIN, {
+        'phone': client_user.phone, 'verification_token': data['verification_token'],
+        'device': {'device_id': 'otp-login-1'},
+    })
+    assert r.status_code == 200, r.data
+    assert r.data['data']['tokens']['access']
+
+    client_user.refresh_from_db()
+    assert client_user.pin_hash == pin_before, 'PIN меняться не должен'
+
+
+def test_otp_login_unlocks_pin_bruteforce_lock(api, client_user, settings):
+    for _ in range(settings.PIN_MAX_ATTEMPTS):
+        post(api, PIN_LOGIN, {'phone': client_user.phone, 'pin': '9999'})
+    client_user.refresh_from_db()
+    assert client_user.is_pin_locked
+
+    data = _verified_token(api, client_user.phone)
+    assert post(api, OTP_LOGIN, {
+        'phone': client_user.phone, 'verification_token': data['verification_token'],
+    }).status_code == 200
+
+    client_user.refresh_from_db()
+    assert not client_user.is_pin_locked
+
+
+def test_otp_login_token_is_single_use(api, client_user):
+    data = _verified_token(api, client_user.phone)
+    body = {'phone': client_user.phone, 'verification_token': data['verification_token']}
+    assert post(api, OTP_LOGIN, body).status_code == 200
+    repeat = post(api, OTP_LOGIN, body)
+    assert repeat.status_code == 403
+    assert repeat.data['error']['code'] == 'OTP_VERIFICATION_REQUIRED'
+
+
+def test_otp_login_rejects_forged_token(api, client_user):
+    r = post(api, OTP_LOGIN, {'phone': client_user.phone, 'verification_token': 'no-such-token'})
+    assert r.status_code == 403
+
+
+def test_verify_returns_name_for_existing_user(api, client_user):
+    data = _verified_token(api, client_user.phone)
+    assert data['user_exists'] is True
+    assert data['first_name'] == client_user.first_name
+    assert data['full_name'] == client_user.full_name
+    assert data['role'] == 'USER'
+
+
+def test_verify_hides_name_for_new_number(api):
+    data = _verified_token(api, '+996555909090')
+    assert data['user_exists'] is False
+    assert 'first_name' not in data
+    assert data['role'] is None

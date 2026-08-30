@@ -15,6 +15,7 @@ user_urlpatterns = [
 
 admin_urlpatterns = [
     path('dashboard', views_admin.AdminDashboardView.as_view(), name='admin-dashboard'),
+    path('program', views_admin.AdminProgramView.as_view(), name='admin-program'),
     path('customers/resolve-qr', views_admin.ResolveQrView.as_view(), name='admin-resolve-qr'),
     path('customers/resolve-code', views_admin.ResolveCodeView.as_view(), name='admin-resolve-code'),
     path('customers', views_admin.AdminCustomersView.as_view(), name='admin-customers'),

@@ -43,6 +43,8 @@ from apps.loyalty.services import statistics as statistics_service
 from apps.loyalty.services.state import get_state
 from apps.loyalty.services.visits import earn_visit
 from apps.organizations.models import LoyaltyType
+from apps.organizations.serializers import OrganizationProgramSerializer
+from apps.organizations.services import program_payload, update_loyalty_program
 from apps.users.models import Role, User
 from apps.users.serializers import UserShortSerializer
 
@@ -418,3 +420,38 @@ class AdminDashboardView(AdminBaseView):
             'pending_redemptions': pending,
             'statistics': stats,
         })
+
+
+@extend_schema(tags=['admin'], request=OrganizationProgramSerializer, responses=OpenApiTypes.OBJECT)
+class AdminProgramView(AdminBaseView):
+    """Настройки программы своей организации (чтение и правка).
+
+    Организация берётся из привязки администратора; organization_id из тела
+    не принимается. Смена типа при существующих транзакциях запрещена — то же
+    правило, что и у директора (ТЗ backend §6).
+    """
+
+    serializer_class = OrganizationProgramSerializer
+
+    def get(self, request):
+        return Response(program_payload(self.organization))
+
+    def patch(self, request):
+        organization = self.organization
+        serializer = OrganizationProgramSerializer(
+            data=request.data,
+            context={'current_loyalty_type': organization.loyalty_type},
+        )
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+
+        update_loyalty_program(
+            organization=organization,
+            loyalty_type=data.get('loyalty_type'),
+            visit_data=data.get('visit_program'),
+            cashback_data=data.get('cashback_program'),
+            actor=request.user,
+            request=request,
+        )
+        organization.refresh_from_db()
+        return Response(program_payload(organization))

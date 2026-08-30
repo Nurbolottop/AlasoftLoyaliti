@@ -58,7 +58,7 @@ class Command(BaseCommand):
             loyalty_type=LoyaltyType.VISIT, director=director,
             phone='+996312900001', address='г. Бишкек, ул. Чуй 100',
         )
-        VisitProgram.objects.get_or_create(
+        VisitProgram.objects.update_or_create(
             organization=cafe,
             defaults={'target_visits': 5, 'reward_count': 1,
                       'reward_title_ru': 'Бесплатный кофе', 'reward_title_ky': 'Акысыз кофе'},
@@ -69,7 +69,7 @@ class Command(BaseCommand):
             loyalty_type=LoyaltyType.CASHBACK, director=director,
             phone='+996312900002', address='г. Бишкек, пр. Манаса 20',
         )
-        CashbackProgram.objects.get_or_create(
+        CashbackProgram.objects.update_or_create(
             organization=shop,
             defaults={'cashback_rate_bps': 500, 'max_spend_percent_bps': 3000, 'expiry_days': 90},
         )

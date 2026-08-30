@@ -6,6 +6,7 @@ auth_urlpatterns = [
     path('otp/request', views.OtpRequestView.as_view(), name='otp-request'),
     path('otp/verify', views.OtpVerifyView.as_view(), name='otp-verify'),
     path('register/complete', views.RegisterCompleteView.as_view(), name='register-complete'),
+    path('otp/login', views.OtpLoginView.as_view(), name='otp-login'),
     path('pin/login', views.PinLoginView.as_view(), name='pin-login'),
     path('pin/reset', views.PinResetView.as_view(), name='pin-reset'),
     path('director/login', views.DirectorLoginView.as_view(), name='director-login'),

@@ -218,7 +218,7 @@ def test_cashback_of_one_org_is_not_spendable_in_another(
         name='Другой маркет', slug='other-market', category=category,
         loyalty_type=LoyaltyType.CASHBACK, created_by=director,
     )
-    CashbackProgram.objects.create(organization=other)
+    CashbackProgram.objects.get_or_create(organization=other)
     give_cashback(client_user, other, 1000 * SOM)
 
     # Админ cashback_org видит нулевой баланс: лоты чужой организации не считаются

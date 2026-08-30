@@ -17,7 +17,7 @@ def foreign_admin(db, category, director):
         name='Чужая кофейня', slug='foreign-coffee', category=category,
         loyalty_type=LoyaltyType.VISIT, created_by=director,
     )
-    VisitProgram.objects.create(organization=organization, target_visits=5)
+    VisitProgram.objects.update_or_create(organization=organization, defaults={'target_visits': 5})
     user = User.objects.create(
         phone='+996700000077', role=Role.ORGANIZATION_ADMIN, is_registration_complete=True
     )

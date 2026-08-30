@@ -148,14 +148,23 @@ def verify_otp(*, challenge_id, code, phone=None, request=None):
 
 def _verify_result(challenge):
     user = User.objects.filter(phone=challenge.phone).first()
-    return {
+    exists = bool(user and user.is_registration_complete)
+    result = {
         'verification_token': challenge.verification_token,
         'expires_in': settings.OTP_VERIFICATION_TTL_SECONDS,
         'phone': challenge.phone,
         'purpose': challenge.purpose,
-        'user_exists': bool(user and user.is_registration_complete),
+        'user_exists': exists,
         'has_pin': bool(user and user.has_pin),
+        'role': user.role if exists else None,
     }
+    if exists:
+        # Имя отдаём только после успешной проверки кода: на этом шаге
+        # звонящий уже доказал владение номером (экран «Аккаунт найден»).
+        result['first_name'] = user.first_name
+        result['last_name'] = user.last_name
+        result['full_name'] = user.full_name
+    return result
 
 
 def consume_verification(*, token, phone, purposes):
@@ -239,6 +248,32 @@ def reset_pin(*, phone, verification_token, pin, device=None, request=None):
     user.save(update_fields=['pin_hash', 'pin_updated_at', 'failed_pin_attempts', 'pin_locked_until'])
 
     log_action(AuditAction.PIN_RESET, actor=user, request=request, entity_type='User', entity_id=user.id)
+    return user, issue_tokens(user, device=device, request=request)
+
+
+@transaction.atomic
+def otp_login(*, phone, verification_token, device=None, request=None):
+    """Вход по подтверждённому SMS-коду, без изменения PIN.
+
+    Нужен, когда пользователь не помнит PIN или входит на новом устройстве:
+    reset_pin для этого не годится — он требует задать новый PIN, а purpose
+    LOGIN раньше не принимал ни один эндпоинт.
+    """
+    consume_verification(
+        token=verification_token, phone=phone,
+        purposes=(OtpPurpose.LOGIN, OtpPurpose.REGISTER),
+    )
+
+    user = User.objects.select_for_update().filter(phone=phone).first()
+    if user is None or not user.is_registration_complete:
+        raise DomainError(code=ErrorCode.USER_NOT_FOUND, message='Пользователь не найден', status_code=404)
+    if not user.is_active:
+        raise DomainError(code=ErrorCode.USER_BLOCKED, message='Аккаунт заблокирован', status_code=403)
+
+    # Подтверждение по SMS снимает блокировку от перебора PIN.
+    user.reset_pin_attempts()
+
+    log_action(AuditAction.LOGIN, actor=user, request=request, entity_type='User', entity_id=user.id)
     return user, issue_tokens(user, device=device, request=request)
 
 

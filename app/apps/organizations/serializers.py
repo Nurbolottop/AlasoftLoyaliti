@@ -134,3 +134,29 @@ class OrganizationDirectorSerializer(serializers.ModelSerializer):
             'is_active': membership.user.is_active,
             'created_at': membership.created_at,
         }
+
+
+class OrganizationProgramSerializer(serializers.Serializer):
+    """Настройка программы владельцем заведения (PATCH /admin/program).
+
+    Организация НЕ принимается из тела — она берётся из привязки
+    администратора на сервере (ТЗ backend §3).
+    """
+
+    loyalty_type = serializers.ChoiceField(choices=LoyaltyType.choices, required=False)
+    visit_program = VisitProgramSerializer(required=False)
+    cashback_program = CashbackProgramSerializer(required=False)
+
+    def validate(self, attrs):
+        target_type = attrs.get('loyalty_type') or self.context.get('current_loyalty_type')
+        if target_type == LoyaltyType.VISIT and attrs.get('cashback_program'):
+            raise serializers.ValidationError(
+                {'cashback_program': 'Организация работает по программе VISIT'}
+            )
+        if target_type == LoyaltyType.CASHBACK and attrs.get('visit_program'):
+            raise serializers.ValidationError(
+                {'visit_program': 'Организация работает по программе CASHBACK'}
+            )
+        if not attrs:
+            raise serializers.ValidationError('Нечего обновлять')
+        return attrs

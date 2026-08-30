@@ -15,6 +15,7 @@ from apps.users.serializers import (
     LogoutSerializer,
     MeSerializer,
     MeUpdateSerializer,
+    OtpLoginSerializer,
     OtpRequestSerializer,
     OtpVerifySerializer,
     PinLoginSerializer,
@@ -110,6 +111,25 @@ class PinLoginView(APIView):
         user, tokens = services.pin_login(
             phone=data['phone'], pin=data['pin'],
             device=data.get('device'), request=request,
+        )
+        return Response({'user': MeSerializer(user).data, 'tokens': tokens})
+
+
+@extend_schema(tags=['auth'], responses=OpenApiTypes.OBJECT)
+class OtpLoginView(APIView):
+    """Вход существующего пользователя по SMS (без ввода и смены PIN)."""
+
+    permission_classes = [AllowAny]
+    authentication_classes = []
+    serializer_class = OtpLoginSerializer
+
+    def post(self, request):
+        data = validated(OtpLoginSerializer, request)
+        user, tokens = services.otp_login(
+            phone=data['phone'],
+            verification_token=data['verification_token'],
+            device=data.get('device'),
+            request=request,
         )
         return Response({'user': MeSerializer(user).data, 'tokens': tokens})
 
