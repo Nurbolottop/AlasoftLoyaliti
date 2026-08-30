@@ -21,6 +21,11 @@
   --shadow: 0 2px 4px rgba(20,20,43,.04), 0 8px 24px rgba(20,20,43,.06);
 }
 
+/* Атрибут hidden должен побеждать любые display из правил ниже:
+   у [hidden] в браузерном стиле специфичность как у класса, поэтому
+   .modal-backdrop{display:grid} перебивал его и модалка не закрывалась. */
+[hidden] { display: none !important; }
+
 * { box-sizing: border-box; }
 body {
   margin: 0; background: var(--bg); color: var(--text);
