@@ -5,10 +5,13 @@ from django.conf import settings
 from django.contrib.auth.base_user import AbstractBaseUser
 from django.contrib.auth.hashers import check_password, make_password
 from django.contrib.auth.models import PermissionsMixin
+from django.core.validators import FileExtensionValidator
 from django.db import models
 from django.utils import timezone
+from django_resized import ResizedImageField
 
 from apps.common.models import TimeStampedModel, UUIDModel
+from apps.organizations.validators import validate_avatar_size
 from apps.users.managers import UserManager
 
 PUBLIC_CODE_LENGTH = 6
@@ -48,6 +51,17 @@ class User(UUIDModel, AbstractBaseUser, PermissionsMixin):
     first_name = models.CharField(max_length=100, blank=True, default='')
     last_name = models.CharField(max_length=100, blank=True, default='')
     birth_date = models.DateField(null=True, blank=True)
+
+    avatar = ResizedImageField(
+        upload_to='users/avatars/',
+        null=True, blank=True,
+        force_format='WEBP', quality=85, size=[512, 512], keep_meta=False,
+        validators=[
+            FileExtensionValidator(allowed_extensions=settings.AVATAR_ALLOWED_EXTENSIONS),
+            validate_avatar_size,
+        ],
+        help_text='Ресайз до 512px, перевод в WEBP и срезание EXIF — на сервере',
+    )
 
     role = models.CharField(max_length=32, choices=Role.choices, default=Role.USER, db_index=True)
     language = models.CharField(max_length=8, choices=Language.choices, default=Language.RU)
@@ -197,6 +211,7 @@ class OtpPurpose(models.TextChoices):
     REGISTER = 'REGISTER', 'Регистрация'
     LOGIN = 'LOGIN', 'Вход'
     PIN_RESET = 'PIN_RESET', 'Сброс PIN'
+    PHONE_CHANGE = 'PHONE_CHANGE', 'Смена номера'
 
 
 class OtpStatus(models.TextChoices):
@@ -212,6 +227,12 @@ class OtpChallenge(UUIDModel, TimeStampedModel):
 
     phone = models.CharField(max_length=20, db_index=True)
     purpose = models.CharField(max_length=16, choices=OtpPurpose.choices)
+    # Для смены номера код уходит на НОВЫЙ телефон, поэтому владельца
+    # челленджа по полю phone уже не найти — храним явной ссылкой.
+    user = models.ForeignKey(
+        'users.User', on_delete=models.CASCADE, null=True, blank=True,
+        related_name='otp_challenges',
+    )
     code_hash = models.CharField(max_length=255)
     status = models.CharField(max_length=16, choices=OtpStatus.choices, default=OtpStatus.PENDING, db_index=True)
     attempts = models.PositiveSmallIntegerField(default=0)

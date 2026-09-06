@@ -51,6 +51,10 @@ SMS_TEMPLATES = {
         'ru': 'AlaSoft: код подтверждения {code}. Никому его не сообщайте.',
         'ky': 'AlaSoft: ырастоо коду {code}. Эч кимге айтпаңыз.',
     },
+    NotificationEvent.SECURITY_ALERT: {
+        'ru': 'AlaSoft: {subject}',
+        'ky': 'AlaSoft: {subject}',
+    },
 }
 
 

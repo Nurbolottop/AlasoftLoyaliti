@@ -8,3 +8,11 @@ def validate_logo_size(value):
     if size and size > settings.LOGO_MAX_SIZE_BYTES:
         limit_mb = settings.LOGO_MAX_SIZE_BYTES // (1024 * 1024)
         raise ValidationError(f'Файл больше {limit_mb} МБ')
+
+
+def validate_avatar_size(value):
+    """Ограничение размера фото профиля."""
+    size = getattr(value, 'size', None)
+    if size and size > settings.AVATAR_MAX_SIZE_BYTES:
+        limit_mb = settings.AVATAR_MAX_SIZE_BYTES // (1024 * 1024)
+        raise ValidationError(f'Файл больше {limit_mb} МБ')

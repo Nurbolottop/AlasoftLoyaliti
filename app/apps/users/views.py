@@ -1,6 +1,7 @@
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import extend_schema
 from rest_framework import status
+from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -11,6 +12,8 @@ from apps.common.errors import DomainError, ErrorCode
 from apps.users import services
 from apps.users.models import UserDevice
 from apps.users.serializers import (
+    AvatarResponseSerializer,
+    AvatarUploadSerializer,
     DirectorLoginSerializer,
     LogoutSerializer,
     MeSerializer,
@@ -18,11 +21,14 @@ from apps.users.serializers import (
     OtpLoginSerializer,
     OtpRequestSerializer,
     OtpVerifySerializer,
+    PhoneChangeConfirmSerializer,
+    PhoneChangeRequestSerializer,
     PinLoginSerializer,
     PinResetSerializer,
     RefreshSerializer,
     RegisterCompleteSerializer,
     UserDeviceSerializer,
+    avatar_url,
 )
 from apps.users.throttles import (
     DirectorLoginThrottle,
@@ -214,13 +220,13 @@ class MeView(APIView):
     serializer_class = MeSerializer
 
     def get(self, request):
-        return Response(MeSerializer(request.user).data)
+        return Response(MeSerializer(request.user, context={'request': request}).data)
 
     def patch(self, request):
         serializer = MeUpdateSerializer(request.user, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
         serializer.save()
-        return Response(MeSerializer(request.user).data)
+        return Response(MeSerializer(request.user, context={'request': request}).data)
 
 
 @extend_schema(tags=['user'])
@@ -260,3 +266,54 @@ class MeQrView(APIView):
             'public_code': user.public_code,
             'qr_payload': f'alasoft://u/{user.qr_token}',
         })
+
+
+@extend_schema(tags=['user'], request=PhoneChangeRequestSerializer, responses=OpenApiTypes.OBJECT)
+class MePhoneChangeRequestView(APIView):
+    """Шаг 1 смены номера: код подтверждения уходит на новый телефон."""
+
+    permission_classes = [IsAuthenticated]
+    serializer_class = PhoneChangeRequestSerializer
+
+    def post(self, request):
+        data = validated(PhoneChangeRequestSerializer, request)
+        return Response(services.request_phone_change(
+            user=request.user, new_phone=data['new_phone'], request=request,
+        ))
+
+
+@extend_schema(tags=['user'], request=PhoneChangeConfirmSerializer, responses=MeSerializer)
+class MePhoneChangeConfirmView(APIView):
+    """Шаг 2: номер меняется, идентификаторы клиента остаются прежними."""
+
+    permission_classes = [IsAuthenticated]
+    serializer_class = PhoneChangeConfirmSerializer
+
+    def post(self, request):
+        data = validated(PhoneChangeConfirmSerializer, request)
+        user = services.confirm_phone_change(
+            user=request.user, challenge_id=data['challenge_id'],
+            code=data['code'], request=request,
+        )
+        return Response(MeSerializer(user, context={'request': request}).data)
+
+
+@extend_schema(tags=['user'], request=AvatarUploadSerializer, responses=AvatarResponseSerializer)
+class MeAvatarView(APIView):
+    """Фото профиля. Ресайз до 512px, WEBP и срезание EXIF — на сервере."""
+
+    permission_classes = [IsAuthenticated]
+    parser_classes = [MultiPartParser, FormParser, JSONParser]
+    serializer_class = AvatarUploadSerializer
+
+    def post(self, request):
+        serializer = AvatarUploadSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        user = services.set_avatar(
+            user=request.user, image=serializer.validated_data['file'], request=request,
+        )
+        return Response({'avatar_url': avatar_url(user, request)})
+
+    def delete(self, request):
+        user = services.delete_avatar(user=request.user, request=request)
+        return Response({'avatar_url': avatar_url(user, request)})

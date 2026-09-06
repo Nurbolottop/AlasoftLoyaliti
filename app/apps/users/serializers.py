@@ -5,6 +5,12 @@ from apps.common.phone import normalize_phone
 from apps.users.models import Language, OtpPurpose, User, UserDevice
 
 
+def avatar_url(user, request=None) -> str | None:
+    if not getattr(user, 'avatar', None):
+        return None
+    return request.build_absolute_uri(user.avatar.url) if request else user.avatar.url
+
+
 class PhoneField(serializers.CharField):
     def to_internal_value(self, data):
         return normalize_phone(super().to_internal_value(data))
@@ -93,12 +99,13 @@ class MeSerializer(serializers.ModelSerializer):
     full_name = serializers.CharField(read_only=True)
     has_pin = serializers.BooleanField(read_only=True)
     qr_payload = serializers.SerializerMethodField()
+    avatar_url = serializers.SerializerMethodField()
 
     class Meta:
         model = User
         fields = [
             'id', 'phone', 'first_name', 'last_name', 'full_name', 'birth_date',
-            'role', 'language', 'public_code', 'qr_payload', 'has_pin',
+            'avatar_url', 'role', 'language', 'public_code', 'qr_payload', 'has_pin',
             'is_registration_complete', 'date_joined',
         ]
         read_only_fields = ['id', 'phone', 'role', 'public_code', 'is_registration_complete', 'date_joined']
@@ -106,6 +113,9 @@ class MeSerializer(serializers.ModelSerializer):
     def get_qr_payload(self, obj) -> str | None:
         """QR несёт только opaque-токен: ни ФИО, ни телефона, ни баланса."""
         return f'alasoft://u/{obj.qr_token}' if obj.qr_token else None
+
+    def get_avatar_url(self, obj) -> str | None:
+        return avatar_url(obj, self.context.get('request'))
 
 
 class MeUpdateSerializer(serializers.ModelSerializer):
@@ -130,11 +140,36 @@ class UserShortSerializer(serializers.ModelSerializer):
 
     full_name = serializers.CharField(read_only=True)
     phone_masked = serializers.SerializerMethodField()
+    avatar_url = serializers.SerializerMethodField()
 
     class Meta:
         model = User
-        fields = ['id', 'full_name', 'first_name', 'public_code', 'phone_masked']
+        fields = ['id', 'full_name', 'first_name', 'public_code', 'phone_masked', 'avatar_url']
 
     def get_phone_masked(self, obj) -> str:
         from apps.common.phone import mask_phone
         return mask_phone(obj.phone)
+
+    def get_avatar_url(self, obj) -> str | None:
+        return avatar_url(obj, self.context.get('request'))
+
+
+class PhoneChangeRequestSerializer(serializers.Serializer):
+    """Шаг 1 смены номера: код уходит на новый телефон."""
+
+    new_phone = PhoneField()
+
+
+class PhoneChangeConfirmSerializer(serializers.Serializer):
+    """Шаг 2: номер меняется только после подтверждения кода."""
+
+    challenge_id = serializers.UUIDField()
+    code = serializers.CharField(max_length=8, write_only=True)
+
+
+class AvatarUploadSerializer(serializers.Serializer):
+    file = serializers.ImageField(write_only=True)
+
+
+class AvatarResponseSerializer(serializers.Serializer):
+    avatar_url = serializers.CharField(allow_null=True)

@@ -18,4 +18,7 @@ me_urlpatterns = [
     path('me', views.MeView.as_view(), name='me'),
     path('me/devices', views.MeDevicesView.as_view(), name='me-devices'),
     path('me/qr', views.MeQrView.as_view(), name='me-qr'),
+    path('me/avatar', views.MeAvatarView.as_view(), name='me-avatar'),
+    path('me/phone/request', views.MePhoneChangeRequestView.as_view(), name='me-phone-request'),
+    path('me/phone/confirm', views.MePhoneChangeConfirmView.as_view(), name='me-phone-confirm'),
 ]

@@ -11,10 +11,15 @@ from apps.organizations.models import (
 
 class CategorySerializer(serializers.ModelSerializer):
     name = serializers.SerializerMethodField()
+    # Приходит из annotate во вьюхе: сколько активных организаций в категории.
+    organizations_count = serializers.IntegerField(read_only=True, default=0)
 
     class Meta:
         model = Category
-        fields = ['id', 'slug', 'name', 'name_ru', 'name_ky', 'icon', 'sort_order']
+        fields = [
+            'id', 'slug', 'name', 'name_ru', 'name_ky', 'icon', 'sort_order',
+            'organizations_count',
+        ]
 
     def get_name(self, obj) -> str:
         return obj.name(self.context.get('language', 'ru'))
@@ -160,3 +165,51 @@ class OrganizationProgramSerializer(serializers.Serializer):
         if not attrs:
             raise serializers.ValidationError('Нечего обновлять')
         return attrs
+
+
+class OrganizationSelfSerializer(serializers.ModelSerializer):
+    """Своя организация глазами её администратора (GET/PATCH /admin/organization).
+
+    slug не отдаём — он в публичных ссылках; loyalty_type правится через
+    /admin/program, status и блокировка остаются за директором.
+    """
+
+    category = CategorySerializer(read_only=True)
+    category_id = serializers.PrimaryKeyRelatedField(
+        source='category',
+        queryset=Category.objects.filter(is_active=True),
+        write_only=True, required=False, allow_null=True,
+    )
+    logo = serializers.ImageField(write_only=True, required=False, allow_null=True)
+    logo_url = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Organization
+        fields = [
+            'id', 'name', 'logo', 'logo_url', 'category', 'category_id',
+            'description_ru', 'description_ky', 'phone', 'address',
+            'working_hours', 'loyalty_type', 'status',
+        ]
+        read_only_fields = ['id', 'loyalty_type', 'status']
+
+    def get_logo_url(self, obj) -> str | None:
+        if not obj.logo:
+            return None
+        request = self.context.get('request')
+        return request.build_absolute_uri(obj.logo.url) if request else obj.logo.url
+
+
+class ProgramOrganizationBriefSerializer(serializers.Serializer):
+    id = serializers.UUIDField()
+    name = serializers.CharField()
+    status = serializers.CharField()
+
+
+class ProgramSettingsSerializer(serializers.Serializer):
+    """Ответ GET/PATCH /admin/program — описан явно, чтобы попасть в схему."""
+
+    organization = ProgramOrganizationBriefSerializer()
+    loyalty_type = serializers.ChoiceField(choices=LoyaltyType.choices)
+    visit_program = VisitProgramSerializer(allow_null=True)
+    cashback_program = CashbackProgramSerializer(allow_null=True)
+    can_change_loyalty_type = serializers.BooleanField()

@@ -199,6 +199,10 @@ MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 LOGO_MAX_SIZE_BYTES = int(os.getenv('LOGO_MAX_SIZE_BYTES', 2 * 1024 * 1024))
 LOGO_ALLOWED_EXTENSIONS = ['png', 'jpg', 'jpeg', 'webp']
 
+# Аватар профиля: тот же подход — ресайз, WEBP и срезание EXIF на сервере.
+AVATAR_MAX_SIZE_BYTES = int(os.getenv('AVATAR_MAX_SIZE_BYTES', 5 * 1024 * 1024))
+AVATAR_ALLOWED_EXTENSIONS = ['png', 'jpg', 'jpeg', 'webp']
+
 DJANGO_RESIZED_DEFAULT = {
     'size': [512, 512],
     'quality': 85,

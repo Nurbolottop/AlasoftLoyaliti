@@ -1,4 +1,4 @@
-from django.db.models import Q
+from django.db.models import Count, Q
 from drf_spectacular.utils import extend_schema
 from rest_framework.generics import ListAPIView, RetrieveAPIView
 from rest_framework.permissions import IsAuthenticated
@@ -52,7 +52,18 @@ class CategoryListView(APIView):
     serializer_class = CategorySerializer
 
     def get(self, request):
-        categories = Category.objects.filter(is_active=True)
+        # Счётчик считаем по тем же организациям, что видны в каталоге:
+        # активным и не заблокированным — иначе фильтр ведёт на пустой экран.
+        categories = Category.objects.filter(is_active=True).annotate(
+            organizations_count=Count(
+                'organizations',
+                filter=Q(organizations__status=OrganizationStatus.ACTIVE),
+                distinct=True,
+            )
+        )
+        if request.query_params.get('has_organizations') in ('true', '1'):
+            categories = categories.filter(organizations_count__gt=0)
+
         language = getattr(request.user, 'language', 'ru')
         return Response(
             CategorySerializer(categories, many=True, context={'language': language}).data

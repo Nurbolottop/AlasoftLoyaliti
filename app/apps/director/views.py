@@ -458,7 +458,14 @@ class DirectorAuditView(DirectorBaseView, ListAPIView):
 @extend_schema(tags=['director'], request=CategorySerializer, responses=CategorySerializer)
 class DirectorCategoriesView(DirectorBaseView):
     def get(self, request):
-        return Response(CategorySerializer(Category.objects.all(), many=True).data)
+        categories = Category.objects.annotate(
+            organizations_count=Count(
+                'organizations',
+                filter=Q(organizations__status=OrganizationStatus.ACTIVE),
+                distinct=True,
+            )
+        )
+        return Response(CategorySerializer(categories, many=True).data)
 
     def post(self, request):
         serializer = CategorySerializer(data=request.data)

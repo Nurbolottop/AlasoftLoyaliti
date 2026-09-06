@@ -13,7 +13,7 @@ from apps.audit.models import AuditAction
 from apps.audit.services import log_action
 from apps.common.errors import DomainError, ErrorCode
 from apps.notifications.models import NotificationEvent
-from apps.notifications.services import send_sms
+from apps.notifications.services import notify_user, send_sms
 from apps.users.models import OtpChallenge, OtpPurpose, OtpStatus, Role, User, UserDevice
 
 logger = logging.getLogger('alasoft.auth')
@@ -101,6 +101,26 @@ def request_otp(*, phone, purpose, request=None, device_id=''):
     return result
 
 
+def _validate_code(challenge, code):
+    """Сверяет код и ведёт счётчик попыток. Общая часть для всех сценариев."""
+    if not challenge.check_code(code):
+        challenge.attempts += 1
+        if challenge.attempts >= challenge.max_attempts:
+            challenge.status = OtpStatus.FAILED
+            challenge.save(update_fields=['attempts', 'status', 'updated_at'])
+            raise DomainError(
+                code=ErrorCode.OTP_TOO_MANY_ATTEMPTS,
+                message='Превышено число попыток, запросите код заново',
+                status_code=429,
+            )
+        challenge.save(update_fields=['attempts', 'updated_at'])
+        raise DomainError(
+            code=ErrorCode.OTP_INVALID,
+            message='Неверный код',
+            details={'attempts_left': challenge.max_attempts - challenge.attempts},
+        )
+
+
 def verify_otp(*, challenge_id, code, phone=None, request=None):
     """Проверяет код и выдаёт одноразовый verification_token."""
     with transaction.atomic():
@@ -119,22 +139,7 @@ def verify_otp(*, challenge_id, code, phone=None, request=None):
             challenge.save(update_fields=['status', 'updated_at'])
             raise DomainError(code=ErrorCode.OTP_EXPIRED, message='Срок действия кода истёк')
 
-        if not challenge.check_code(code):
-            challenge.attempts += 1
-            if challenge.attempts >= challenge.max_attempts:
-                challenge.status = OtpStatus.FAILED
-                challenge.save(update_fields=['attempts', 'status', 'updated_at'])
-                raise DomainError(
-                    code=ErrorCode.OTP_TOO_MANY_ATTEMPTS,
-                    message='Превышено число попыток, запросите код заново',
-                    status_code=429,
-                )
-            challenge.save(update_fields=['attempts', 'updated_at'])
-            raise DomainError(
-                code=ErrorCode.OTP_INVALID,
-                message='Неверный код',
-                details={'attempts_left': challenge.max_attempts - challenge.attempts},
-            )
+        _validate_code(challenge, code)
 
         challenge.status = OtpStatus.VERIFIED
         challenge.verified_at = timezone.now()
@@ -398,3 +403,143 @@ def cleanup_otp_challenges(*, now=None, keep_days=2):
         created_at__lte=now - timedelta(days=keep_days)
     ).delete()
     return {'expired': expired, 'deleted': deleted}
+
+
+# --- смена номера телефона -------------------------------------------------
+
+def request_phone_change(*, user, new_phone, request=None):
+    """Шлёт код на НОВЫЙ номер. Сам номер меняется только после подтверждения."""
+    if new_phone == user.phone:
+        raise DomainError(
+            code=ErrorCode.VALIDATION_ERROR,
+            message='Это уже ваш текущий номер',
+            status_code=400,
+        )
+    if User.objects.filter(phone=new_phone).exclude(pk=user.pk).exists():
+        raise DomainError(
+            code=ErrorCode.USER_ALREADY_EXISTS,
+            message='Этот номер уже занят другим аккаунтом',
+            status_code=409,
+        )
+
+    now = timezone.now()
+    recent = (
+        OtpChallenge.objects.filter(user=user, purpose=OtpPurpose.PHONE_CHANGE)
+        .order_by('-created_at').first()
+    )
+    if recent and (now - recent.created_at).total_seconds() < settings.OTP_RESEND_COOLDOWN_SECONDS:
+        wait = settings.OTP_RESEND_COOLDOWN_SECONDS - int((now - recent.created_at).total_seconds())
+        raise DomainError(
+            code=ErrorCode.OTP_COOLDOWN,
+            message='Повторная отправка возможна позже',
+            status_code=429,
+            details={'retry_after': max(wait, 1)},
+        )
+
+    OtpChallenge.objects.filter(
+        user=user, purpose=OtpPurpose.PHONE_CHANGE, status=OtpStatus.PENDING
+    ).update(status=OtpStatus.EXPIRED)
+
+    code = _generate_code()
+    challenge = OtpChallenge(
+        phone=new_phone,
+        purpose=OtpPurpose.PHONE_CHANGE,
+        user=user,
+        status=OtpStatus.PENDING,
+        max_attempts=settings.OTP_MAX_ATTEMPTS,
+        expires_at=now + timedelta(seconds=settings.OTP_TTL_SECONDS),
+        request_ip=_client_ip(request),
+    )
+    challenge.set_code(code)
+    challenge.save()
+
+    send_sms(new_phone, NotificationEvent.OTP, context={'code': code},
+             language=user.language, user=user)
+
+    result = {
+        'challenge_id': str(challenge.id),
+        'new_phone': new_phone,
+        'expires_in': settings.OTP_TTL_SECONDS,
+        'resend_after': settings.OTP_RESEND_COOLDOWN_SECONDS,
+    }
+    if settings.OTP_DEBUG_RETURN_CODE:
+        result['debug_code'] = code
+    return result
+
+
+@transaction.atomic
+def confirm_phone_change(*, user, challenge_id, code, request=None):
+    """Меняет номер после подтверждения кода с нового телефона.
+
+    public_code и qr_token остаются прежними: карты, история и балансы
+    привязаны к пользователю, а не к номеру. О смене уведомляем старый номер.
+    """
+    challenge = (
+        OtpChallenge.objects.select_for_update(of=('self',))
+        .filter(pk=challenge_id, user=user, purpose=OtpPurpose.PHONE_CHANGE)
+        .first()
+    )
+    if challenge is None:
+        raise DomainError(code=ErrorCode.OTP_INVALID, message='Запрос на смену номера не найден', status_code=404)
+    if challenge.status != OtpStatus.PENDING:
+        raise DomainError(code=ErrorCode.OTP_INVALID, message='Код уже использован или недействителен')
+    if challenge.is_expired:
+        challenge.status = OtpStatus.EXPIRED
+        challenge.save(update_fields=['status', 'updated_at'])
+        raise DomainError(code=ErrorCode.OTP_EXPIRED, message='Срок действия кода истёк')
+
+    _validate_code(challenge, code)
+
+    new_phone = challenge.phone
+    if User.objects.filter(phone=new_phone).exclude(pk=user.pk).exists():
+        raise DomainError(
+            code=ErrorCode.USER_ALREADY_EXISTS,
+            message='Этот номер уже занят другим аккаунтом',
+            status_code=409,
+        )
+
+    old_phone = user.phone
+    user.phone = new_phone
+    user.save(update_fields=['phone'])
+
+    challenge.status = OtpStatus.CONSUMED
+    challenge.consumed_at = timezone.now()
+    challenge.verification_token = ''
+    challenge.save(update_fields=['status', 'consumed_at', 'verification_token', 'updated_at'])
+
+    log_action(
+        AuditAction.PHONE_CHANGED, actor=user, request=request,
+        entity_type='User', entity_id=user.id,
+        before={'phone': old_phone}, after={'phone': new_phone},
+    )
+
+    # Старый номер должен узнать о смене — на случай, если её сделал не владелец.
+    send_sms(old_phone, NotificationEvent.SECURITY_ALERT,
+             context={'subject': f'номер аккаунта изменён на {new_phone}'},
+             language=user.language, user=user)
+    notify_user(user, NotificationEvent.SECURITY_ALERT,
+                context={'subject': 'Номер телефона изменён'})
+
+    return user
+
+
+# --- фото профиля -----------------------------------------------------------
+
+def set_avatar(*, user, image, request=None):
+    """Ресайз до 512px, WEBP и срезание EXIF делает поле модели."""
+    user.avatar = image
+    user.full_clean(exclude=[f.name for f in user._meta.fields if f.name != 'avatar'])
+    user.save(update_fields=['avatar'])
+    log_action(AuditAction.AVATAR_UPDATED, actor=user, request=request,
+               entity_type='User', entity_id=user.id, after={'has_avatar': True})
+    return user
+
+
+def delete_avatar(*, user, request=None):
+    if user.avatar:
+        user.avatar.delete(save=False)
+    user.avatar = None
+    user.save(update_fields=['avatar'])
+    log_action(AuditAction.AVATAR_UPDATED, actor=user, request=request,
+               entity_type='User', entity_id=user.id, after={'has_avatar': False})
+    return user

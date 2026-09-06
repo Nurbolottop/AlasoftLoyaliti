@@ -6,7 +6,9 @@ organization_id из тела запроса не принимается.
 
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import extend_schema
+from django.db import transaction
 from rest_framework.generics import ListAPIView
+from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -43,7 +45,13 @@ from apps.loyalty.services import statistics as statistics_service
 from apps.loyalty.services.state import get_state
 from apps.loyalty.services.visits import earn_visit
 from apps.organizations.models import LoyaltyType
-from apps.organizations.serializers import OrganizationProgramSerializer
+from apps.audit.models import AuditAction
+from apps.audit.services import log_action
+from apps.organizations.serializers import (
+    OrganizationProgramSerializer,
+    OrganizationSelfSerializer,
+    ProgramSettingsSerializer,
+)
 from apps.organizations.services import program_payload, update_loyalty_program
 from apps.users.models import Role, User
 from apps.users.serializers import UserShortSerializer
@@ -422,7 +430,7 @@ class AdminDashboardView(AdminBaseView):
         })
 
 
-@extend_schema(tags=['admin'], request=OrganizationProgramSerializer, responses=OpenApiTypes.OBJECT)
+@extend_schema(tags=['admin'], request=OrganizationProgramSerializer, responses=ProgramSettingsSerializer)
 class AdminProgramView(AdminBaseView):
     """Настройки программы своей организации (чтение и правка).
 
@@ -455,3 +463,52 @@ class AdminProgramView(AdminBaseView):
         )
         organization.refresh_from_db()
         return Response(program_payload(organization))
+
+
+@extend_schema(tags=['admin'], request=OrganizationSelfSerializer, responses=OrganizationSelfSerializer)
+class AdminOrganizationView(AdminBaseView):
+    """Карточка своей организации: название, логотип, категория, контакты.
+
+    Организация берётся из привязки администратора. slug, тип программы и
+    статус здесь не меняются: первый ломает публичные ссылки, второй правится
+    через /admin/program, третий остаётся за директором.
+    """
+
+    serializer_class = OrganizationSelfSerializer
+    parser_classes = [JSONParser, MultiPartParser, FormParser]
+
+    def get(self, request):
+        return Response(OrganizationSelfSerializer(
+            self.organization, context={'request': request},
+        ).data)
+
+    @transaction.atomic
+    def patch(self, request):
+        organization = self.organization
+        before = {
+            'name': organization.name,
+            'phone': organization.phone,
+            'address': organization.address,
+            'category_id': str(organization.category_id or ''),
+            'has_logo': bool(organization.logo),
+        }
+
+        serializer = OrganizationSelfSerializer(
+            organization, data=request.data, partial=True, context={'request': request},
+        )
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+
+        log_action(
+            AuditAction.ORGANIZATION_UPDATED, actor=request.user, request=request,
+            entity_type='Organization', entity_id=organization.id,
+            organization=organization, before=before,
+            after={
+                'name': organization.name,
+                'phone': organization.phone,
+                'address': organization.address,
+                'category_id': str(organization.category_id or ''),
+                'has_logo': bool(organization.logo),
+            },
+        )
+        return Response(serializer.data)

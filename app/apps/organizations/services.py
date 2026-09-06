@@ -28,25 +28,18 @@ def ensure_program(organization):
 
 
 def program_payload(organization):
-    from apps.organizations.serializers import (
-        CashbackProgramSerializer,
-        VisitProgramSerializer,
-    )
+    """Форма ответа /admin/program. Описана ProgramSettingsSerializer."""
+    from apps.organizations.serializers import ProgramSettingsSerializer
 
     program = ensure_program(organization)
-    serializer = (VisitProgramSerializer if organization.loyalty_type == LoyaltyType.VISIT
-                  else CashbackProgramSerializer)
-    return {
-        'organization': {
-            'id': str(organization.id),
-            'name': organization.name,
-            'status': organization.status,
-        },
+    is_visit = organization.loyalty_type == LoyaltyType.VISIT
+    return ProgramSettingsSerializer({
+        'organization': organization,
         'loyalty_type': organization.loyalty_type,
-        'visit_program': serializer(program).data if organization.loyalty_type == LoyaltyType.VISIT else None,
-        'cashback_program': serializer(program).data if organization.loyalty_type == LoyaltyType.CASHBACK else None,
+        'visit_program': program if is_visit else None,
+        'cashback_program': None if is_visit else program,
         'can_change_loyalty_type': not _has_transactions(organization),
-    }
+    }).data
 
 
 def _has_transactions(organization):
