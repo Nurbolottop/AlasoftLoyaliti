@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Удаление аккаунта — PAYDA</title>
+<meta name="description" content="Как удалить аккаунт PAYDA в приложении. Какие данные удаляются, какие сохраняются и в какой срок.">
+<!-- Страницу читает ревьюер Google Play. Она обязана открываться без входа
+     в аккаунт и отдавать 200 — иначе сборку отклонят. -->
+<meta name="robots" content="index, follow">
+<style>
+  :root {
+    --brand:      #6D28D9;
+    --bg:         #F6F5FB;
+    --surface:    #FFFFFF;
+    --border:     #E5E1F2;
+    --text:       #1E1B33;
+    --text-2:     #6B6789;
+    --danger:     #B3261E;
+    --danger-bg:  #FDECEA;
+    --radius:     16px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --brand: #B79BFF;
+      --bg: #131024; --surface: #1C1833; --border: #332C52;
+      --text: #F2F0FA; --text-2: #A9A4C4;
+      --danger: #FFB4AB; --danger-bg: #2B1614;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 16px/1.65 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 680px; margin: 0 auto; padding: 32px 20px 72px; }
+
+  header { display: flex; align-items: center; gap: 12px; margin-bottom: 40px; }
+  /* Знак тёмно-синий, и на тёмном фоне он тонет. Белая подложка —
+     то же фирменное поле, что и у иконки приложения. */
+  header img {
+    width: 44px; height: 44px; display: block;
+    background: #fff; border-radius: 12px; padding: 4px;
+  }
+  header .name { font-size: 20px; font-weight: 700; letter-spacing: 0.12em; }
+
+  h1 { font-size: clamp(28px, 6vw, 38px); line-height: 1.2; margin: 0 0 12px; letter-spacing: -0.02em; }
+  .lede { font-size: 18px; color: var(--text-2); margin: 0 0 40px; }
+
+  h2 { font-size: 21px; margin: 44px 0 16px; letter-spacing: -0.01em; }
+  p { margin: 0 0 16px; }
+
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 26px;
+    margin: 0 0 20px;
+  }
+  .card h2 { margin-top: 0; }
+
+  ol.steps { margin: 0; padding: 0; list-style: none; counter-reset: step; }
+  ol.steps li {
+    counter-increment: step;
+    position: relative; padding-left: 44px; margin-bottom: 16px;
+  }
+  ol.steps li:last-child { margin-bottom: 0; }
+  ol.steps li::before {
+    content: counter(step);
+    position: absolute; left: 0; top: -1px;
+    width: 28px; height: 28px; border-radius: 50%;
+    background: var(--brand); color: #fff;
+    font-size: 14px; font-weight: 700;
+    display: flex; align-items: center; justify-content: center;
+  }
+  @media (prefers-color-scheme: dark) {
+    ol.steps li::before { color: #1E1B33; }
+  }
+
+  ul { margin: 0 0 16px; padding-left: 22px; }
+  li { margin-bottom: 8px; }
+
+  .warn {
+    background: var(--danger-bg);
+    border: 1px solid rgba(179, 38, 30, 0.3);
+    border-radius: var(--radius);
+    padding: 18px 22px; margin: 24px 0;
+  }
+  @media (prefers-color-scheme: dark) {
+    .warn { border-color: rgba(255, 180, 171, 0.3); }
+  }
+  .warn strong { color: var(--danger); }
+  .warn p:last-child { margin-bottom: 0; }
+
+  table { width: 100%; border-collapse: collapse; margin: 0 0 16px; font-size: 15px; }
+  th, td { text-align: left; padding: 12px 14px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { font-weight: 600; color: var(--text-2); font-size: 13px; text-transform: uppercase; letter-spacing: 0.04em; }
+  tr:last-child td { border-bottom: none; }
+  .scroll { overflow-x: auto; }
+
+  a { color: var(--brand); }
+  footer {
+    margin-top: 56px; padding-top: 24px;
+    border-top: 1px solid var(--border);
+    color: var(--text-2); font-size: 14px;
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <img alt="PAYDA" src="data:image/png;base64,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">
+    <span class="name">PAYDA</span>
+  </header>
+
+  <h1>Как удалить аккаунт PAYDA</h1>
+  <p class="lede">
+    Аккаунт удаляется в самом приложении, за четыре шага.
+  </p>
+
+  <div class="card">
+    <ol class="steps">
+      <li>Откройте приложение PAYDA.</li>
+      <li>Перейдите на вкладку <strong>Профиль</strong>.</li>
+      <li>Пролистайте вниз до раздела <strong>О приложении</strong>.</li>
+      <li>Нажмите <strong>Удалить аккаунт</strong> и подтвердите действие.</li>
+    </ol>
+  </div>
+
+  <h2>Какие данные удаляются</h2>
+  <p>Удаляются безвозвратно:</p>
+  <ul>
+    <li>профиль: имя, фамилия, номер телефона, фотография;</li>
+    <li>накопленные бонусы и кэшбэк во всех организациях-партнёрах;</li>
+    <li>полученные и неиспользованные подарки;</li>
+    <li>персональный QR-код и 6-значный код;</li>
+    <li>список привязанных устройств и токены уведомлений.</li>
+  </ul>
+
+  <h2>Какие данные сохраняются и почему</h2>
+  <div class="scroll">
+    <table>
+      <tr>
+        <th>Что остаётся</th>
+        <th>Срок</th>
+        <th>Почему</th>
+      </tr>
+      <tr>
+        <td>Записи о проведённых операциях с бонусами: сумма, дата, организация</td>
+        <td>5 лет</td>
+        <td>Требование бухгалтерского и налогового учёта</td>
+      </tr>
+    </table>
+  </div>
+  <p>
+    Из этих записей удаляются имя, номер телефона и фотография. Остаётся
+    обезличенная строка, по которой нельзя установить, кому она принадлежала.
+  </p>
+
+  <h2>Сроки</h2>
+  <p>
+    Профиль и бонусы удаляются сразу при подтверждении. Остальные данные —
+    в течение 30 дней.
+  </p>
+
+  <div class="warn">
+    <p><strong>Бонусы сгорают.</strong></p>
+    <p>
+      После удаления аккаунта восстановить накопленный баланс невозможно —
+      даже если вы зарегистрируетесь заново с тем же номером телефона.
+      Удаление аккаунта не отменяет уже совершённые покупки
+      в организациях-партнёрах.
+    </p>
+  </div>
+
+  <h2>Если приложение уже удалено</h2>
+  <p>
+    Установите PAYDA заново, войдите по номеру телефона и выполните шаги выше.
+    Если войти не получается — например, вы потеряли SIM-карту или сменили
+    номер, — напишите на
+    <a href="mailto:support@alasoft.website">support@alasoft.website</a>,
+    и мы удалим аккаунт сами.
+  </p>
+
+  <footer>
+    PAYDA — программа лояльности.
+    <a href="/privacy">Политика конфиденциальности</a>
+  </footer>
+
+</div>
+</body>
+</html>

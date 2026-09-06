@@ -173,3 +173,10 @@ class AvatarUploadSerializer(serializers.Serializer):
 
 class AvatarResponseSerializer(serializers.Serializer):
     avatar_url = serializers.CharField(allow_null=True)
+
+
+class AccountDeleteConfirmSerializer(serializers.Serializer):
+    """Подтверждение удаления аккаунта кодом с текущего номера."""
+
+    challenge_id = serializers.UUIDField()
+    code = serializers.CharField(max_length=8, write_only=True)

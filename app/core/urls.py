@@ -5,6 +5,7 @@ from django.conf.urls.static import static
 from django.contrib import admin
 from django.http import JsonResponse
 from django.urls import include, path
+from django.views.generic import TemplateView
 from drf_spectacular.views import SpectacularAPIView, SpectacularRedocView, SpectacularSwaggerView
 
 from apps.director.urls import urlpatterns as director_urlpatterns
@@ -29,6 +30,13 @@ api_v1 = [
 
 urlpatterns = [
     path('health', healthcheck, name='health'),
+
+    # Публичные страницы. Требование Google Play и App Store: открываются без
+    # авторизации и без редиректа на вход, иначе ревьюер их не увидит.
+    path('privacy', TemplateView.as_view(template_name='legal/privacy.html'), name='privacy'),
+    path('terms', TemplateView.as_view(template_name='legal/terms.html'), name='terms'),
+    path('account-delete', TemplateView.as_view(template_name='legal/account-delete.html'),
+         name='account-delete'),
     path('api/v1/', include((api_v1, 'v1'))),
 
     # OpenAPI / Swagger (ТЗ backend §32)

@@ -12,6 +12,7 @@ class AuditAction(models.TextChoices):
     PIN_RESET = 'PIN_RESET', 'Сброшен PIN'
     PHONE_CHANGED = 'PHONE_CHANGED', 'Изменён номер телефона'
     AVATAR_UPDATED = 'AVATAR_UPDATED', 'Изменено фото профиля'
+    ACCOUNT_DELETED = 'ACCOUNT_DELETED', 'Аккаунт удалён'
     ORGANIZATION_CREATED = 'ORGANIZATION_CREATED', 'Организация создана'
     ORGANIZATION_UPDATED = 'ORGANIZATION_UPDATED', 'Организация изменена'
     ORGANIZATION_BLOCKED = 'ORGANIZATION_BLOCKED', 'Организация заблокирована'

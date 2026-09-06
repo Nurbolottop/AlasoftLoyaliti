@@ -290,6 +290,17 @@ OTP_DEBUG_RETURN_CODE = os.getenv('OTP_DEBUG_RETURN_CODE', 'false').lower() == '
 # после подключения SMS.
 OTP_STATIC_CODE = os.getenv('OTP_STATIC_CODE', '').strip()
 
+# Номера для ревьюеров магазинов: SMS не отправляется, код фиксирован.
+# Формат: "+996700000000:0000,+996700000009:1111". Пусто = механизм выключен.
+# Работает ТОЛЬКО для номеров из списка, на остальные не влияет.
+OTP_TEST_ACCOUNTS = {
+    phone.strip(): code.strip()
+    for phone, _, code in (
+        pair.partition(':') for pair in os.getenv('OTP_TEST_ACCOUNTS', '').split(',')
+    )
+    if phone.strip() and code.strip()
+}
+
 PIN_LENGTH = int(os.getenv('PIN_LENGTH', 4))
 PIN_MAX_ATTEMPTS = int(os.getenv('PIN_MAX_ATTEMPTS', 5))
 PIN_LOCKOUT_SECONDS = int(os.getenv('PIN_LOCKOUT_SECONDS', 900))

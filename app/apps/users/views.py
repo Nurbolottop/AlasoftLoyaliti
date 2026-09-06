@@ -12,6 +12,7 @@ from apps.common.errors import DomainError, ErrorCode
 from apps.users import services
 from apps.users.models import UserDevice
 from apps.users.serializers import (
+    AccountDeleteConfirmSerializer,
     AvatarResponseSerializer,
     AvatarUploadSerializer,
     DirectorLoginSerializer,
@@ -317,3 +318,29 @@ class MeAvatarView(APIView):
     def delete(self, request):
         user = services.delete_avatar(user=request.user, request=request)
         return Response({'avatar_url': avatar_url(user, request)})
+
+
+@extend_schema(tags=['user'], request=None, responses=OpenApiTypes.OBJECT)
+class MeDeleteRequestView(APIView):
+    """Шаг 1 удаления аккаунта: код уходит на текущий номер."""
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        return Response(services.request_account_deletion(user=request.user, request=request))
+
+
+@extend_schema(tags=['user'], request=AccountDeleteConfirmSerializer, responses=OpenApiTypes.OBJECT)
+class MeDeleteConfirmView(APIView):
+    """Шаг 2: аккаунт обезличивается, все токены перестают действовать."""
+
+    permission_classes = [IsAuthenticated]
+    serializer_class = AccountDeleteConfirmSerializer
+
+    def post(self, request):
+        data = validated(AccountDeleteConfirmSerializer, request)
+        services.confirm_account_deletion(
+            user=request.user, challenge_id=data['challenge_id'],
+            code=data['code'], request=request,
+        )
+        return Response({'deleted': True})

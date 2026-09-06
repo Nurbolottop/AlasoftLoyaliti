@@ -79,6 +79,9 @@ class User(UUIDModel, AbstractBaseUser, PermissionsMixin):
     is_active = models.BooleanField(default=True)
     is_staff = models.BooleanField(default=False)
     is_registration_complete = models.BooleanField(default=False)
+    # Момент обезличивания. Строка пользователя остаётся: на неё ссылается
+    # неизменяемый ledger, но персональных данных в ней больше нет.
+    deleted_at = models.DateTimeField(null=True, blank=True, db_index=True)
     date_joined = models.DateTimeField(default=timezone.now)
     last_login_at = models.DateTimeField(null=True, blank=True)
 
@@ -212,6 +215,7 @@ class OtpPurpose(models.TextChoices):
     LOGIN = 'LOGIN', 'Вход'
     PIN_RESET = 'PIN_RESET', 'Сброс PIN'
     PHONE_CHANGE = 'PHONE_CHANGE', 'Смена номера'
+    ACCOUNT_DELETE = 'ACCOUNT_DELETE', 'Удаление аккаунта'
 
 
 class OtpStatus(models.TextChoices):

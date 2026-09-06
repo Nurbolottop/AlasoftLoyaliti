@@ -21,4 +21,6 @@ me_urlpatterns = [
     path('me/avatar', views.MeAvatarView.as_view(), name='me-avatar'),
     path('me/phone/request', views.MePhoneChangeRequestView.as_view(), name='me-phone-request'),
     path('me/phone/confirm', views.MePhoneChangeConfirmView.as_view(), name='me-phone-confirm'),
+    path('me/delete/request', views.MeDeleteRequestView.as_view(), name='me-delete-request'),
+    path('me/delete/confirm', views.MeDeleteConfirmView.as_view(), name='me-delete-confirm'),
 ]

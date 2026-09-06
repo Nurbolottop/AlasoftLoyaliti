@@ -11,7 +11,7 @@ from rest_framework_simplejwt.tokens import RefreshToken
 
 from apps.audit.models import AuditAction
 from apps.audit.services import log_action
-from apps.common.errors import DomainError, ErrorCode
+from apps.common.errors import DomainError, ErrorCode, PermissionDeniedError
 from apps.notifications.models import NotificationEvent
 from apps.notifications.services import notify_user, send_sms
 from apps.users.models import OtpChallenge, OtpPurpose, OtpStatus, Role, User, UserDevice
@@ -19,13 +19,22 @@ from apps.users.models import OtpChallenge, OtpPurpose, OtpStatus, Role, User, U
 logger = logging.getLogger('alasoft.auth')
 
 
-def _generate_code() -> str:
-    """Случайный OTP; при заданном OTP_STATIC_CODE — фиксированный код.
+def is_test_account(phone) -> bool:
+    """Номер из белого списка для ревьюеров магазинов."""
+    return bool(phone) and phone in settings.OTP_TEST_ACCOUNTS
 
-    Статический код — временная мера на период без SMS-провайдера. Всё
-    остальное (хранение только хеша, TTL, счётчик попыток, rate limiting)
-    работает как обычно.
+
+def _generate_code(phone=None) -> str:
+    """Код подтверждения для номера.
+
+    Приоритет: белый список ревьюеров → OTP_STATIC_CODE (временно, пока нет
+    SMS-провайдера) → случайный. Хранение только хеша, TTL, счётчик попыток и
+    rate limiting во всех случаях одинаковые.
     """
+    test_code = settings.OTP_TEST_ACCOUNTS.get(phone) if phone else None
+    if test_code:
+        return test_code
+
     if settings.OTP_STATIC_CODE:
         logger.warning(
             'OTP_STATIC_CODE активен: подтверждение номера проходит по '
@@ -35,6 +44,20 @@ def _generate_code() -> str:
 
     length = settings.OTP_CODE_LENGTH
     return ''.join(str(secrets.randbelow(10)) for _ in range(length))
+
+
+def _login_reason(user):
+    """Входы тестовых аккаунтов должны быть отличимы в аудите."""
+    return 'test_account' if is_test_account(user.phone) else ''
+
+
+def _deliver_code(phone, code, *, user=None, language='ru'):
+    """Ставит SMS в очередь. Тестовым номерам ничего не шлём — их код известен."""
+    if is_test_account(phone):
+        logger.info('Тестовый аккаунт %s: SMS не отправляется', phone)
+        return
+    send_sms(phone, NotificationEvent.OTP, context={'code': code},
+             language=language, user=user)
 
 
 def request_otp(*, phone, purpose, request=None, device_id=''):
@@ -69,7 +92,7 @@ def request_otp(*, phone, purpose, request=None, device_id=''):
         phone=phone, purpose=purpose, status=OtpStatus.PENDING
     ).update(status=OtpStatus.EXPIRED)
 
-    code = _generate_code()
+    code = _generate_code(phone)
     challenge = OtpChallenge(
         phone=phone,
         purpose=purpose,
@@ -82,12 +105,7 @@ def request_otp(*, phone, purpose, request=None, device_id=''):
     challenge.set_code(code)
     challenge.save()
 
-    send_sms(
-        phone, NotificationEvent.OTP,
-        context={'code': code},
-        language=getattr(user, 'language', 'ru'),
-        user=user,
-    )
+    _deliver_code(phone, code, user=user, language=getattr(user, 'language', 'ru'))
 
     result = {
         'challenge_id': str(challenge.id),
@@ -278,7 +296,8 @@ def otp_login(*, phone, verification_token, device=None, request=None):
     # Подтверждение по SMS снимает блокировку от перебора PIN.
     user.reset_pin_attempts()
 
-    log_action(AuditAction.LOGIN, actor=user, request=request, entity_type='User', entity_id=user.id)
+    log_action(AuditAction.LOGIN, actor=user, request=request, entity_type='User',
+               entity_id=user.id, reason=_login_reason(user))
     return user, issue_tokens(user, device=device, request=request)
 
 
@@ -306,7 +325,8 @@ def pin_login(*, phone, pin, device=None, request=None):
         raise DomainError(code=ErrorCode.PIN_INVALID, message='Неверный PIN', status_code=401)
 
     user.reset_pin_attempts()
-    log_action(AuditAction.LOGIN, actor=user, request=request, entity_type='User', entity_id=user.id)
+    log_action(AuditAction.LOGIN, actor=user, request=request, entity_type='User',
+               entity_id=user.id, reason=_login_reason(user))
     return user, issue_tokens(user, device=device, request=request)
 
 
@@ -440,7 +460,7 @@ def request_phone_change(*, user, new_phone, request=None):
         user=user, purpose=OtpPurpose.PHONE_CHANGE, status=OtpStatus.PENDING
     ).update(status=OtpStatus.EXPIRED)
 
-    code = _generate_code()
+    code = _generate_code(new_phone)
     challenge = OtpChallenge(
         phone=new_phone,
         purpose=OtpPurpose.PHONE_CHANGE,
@@ -453,8 +473,7 @@ def request_phone_change(*, user, new_phone, request=None):
     challenge.set_code(code)
     challenge.save()
 
-    send_sms(new_phone, NotificationEvent.OTP, context={'code': code},
-             language=user.language, user=user)
+    _deliver_code(new_phone, code, user=user, language=user.language)
 
     result = {
         'challenge_id': str(challenge.id),
@@ -543,3 +562,155 @@ def delete_avatar(*, user, request=None):
     log_action(AuditAction.AVATAR_UPDATED, actor=user, request=request,
                entity_type='User', entity_id=user.id, after={'has_avatar': False})
     return user
+
+
+# --- удаление аккаунта ------------------------------------------------------
+
+def request_account_deletion(*, user, request=None):
+    """Код уходит на ТЕКУЩИЙ номер. До подтверждения аккаунт не трогаем."""
+    if user.role != Role.USER:
+        raise PermissionDeniedError(message='Удаление доступно только клиентам')
+
+    now = timezone.now()
+    recent = (
+        OtpChallenge.objects.filter(user=user, purpose=OtpPurpose.ACCOUNT_DELETE)
+        .order_by('-created_at').first()
+    )
+    if recent and (now - recent.created_at).total_seconds() < settings.OTP_RESEND_COOLDOWN_SECONDS:
+        wait = settings.OTP_RESEND_COOLDOWN_SECONDS - int((now - recent.created_at).total_seconds())
+        raise DomainError(
+            code=ErrorCode.OTP_COOLDOWN, message='Повторная отправка возможна позже',
+            status_code=429, details={'retry_after': max(wait, 1)},
+        )
+
+    OtpChallenge.objects.filter(
+        user=user, purpose=OtpPurpose.ACCOUNT_DELETE, status=OtpStatus.PENDING,
+    ).update(status=OtpStatus.EXPIRED)
+
+    code = _generate_code(user.phone)
+    challenge = OtpChallenge(
+        phone=user.phone,
+        purpose=OtpPurpose.ACCOUNT_DELETE,
+        user=user,
+        status=OtpStatus.PENDING,
+        max_attempts=settings.OTP_MAX_ATTEMPTS,
+        expires_at=now + timedelta(seconds=settings.OTP_TTL_SECONDS),
+        request_ip=_client_ip(request),
+    )
+    challenge.set_code(code)
+    challenge.save()
+
+    _deliver_code(user.phone, code, user=user, language=user.language)
+
+    result = {
+        'challenge_id': str(challenge.id),
+        'expires_in': settings.OTP_TTL_SECONDS,
+        'resend_after': settings.OTP_RESEND_COOLDOWN_SECONDS,
+    }
+    if settings.OTP_DEBUG_RETURN_CODE:
+        result['debug_code'] = code
+    return result
+
+
+@transaction.atomic
+def anonymize_user(*, user, request=None, actor=None, notify=True):
+    """Обезличивает пользователя. Ledger не трогает — записи под PROTECT.
+
+    Строка в users остаётся: на неё ссылаются неизменяемые транзакции. Но
+    персональных данных в ней не остаётся, а телефон и 6-значный код
+    освобождаются — человек может зарегистрироваться заново.
+
+    Вызывается и из API (после подтверждения по SMS), и из django-admin, когда
+    удаление просят через поддержку и владельца проверил человек.
+    """
+    from apps.audit.models import AuditLog
+    from apps.loyalty.models import (
+        CashbackLot, CashbackLotStatus, Gift, GiftStatus,
+        RedemptionRequest, RedemptionStatus, UserOrganizationState,
+    )
+    from apps.notifications.models import Notification
+    from rest_framework_simplejwt.token_blacklist.models import BlacklistedToken, OutstandingToken
+
+    old_phone = user.phone
+    now = timezone.now()
+
+    # 1. Погасить то, что удалить нельзя (PROTECT).
+    CashbackLot.objects.filter(user=user, status=CashbackLotStatus.ACTIVE).update(
+        status=CashbackLotStatus.CANCELLED, remaining_amount=0, updated_at=now,
+    )
+    Gift.objects.filter(
+        user=user, status__in=[GiftStatus.AVAILABLE, GiftStatus.PENDING_REDEMPTION],
+    ).update(status=GiftStatus.CANCELLED, cancelled_at=now, updated_at=now)
+    # Иначе у кассира навсегда зависнет запрос от несуществующего клиента.
+    RedemptionRequest.objects.filter(user=user, status=RedemptionStatus.PENDING).update(
+        status=RedemptionStatus.CANCELLED, resolved_at=now,
+        reject_reason='Аккаунт удалён', updated_at=now,
+    )
+
+    # 2. Удалить то, что можно. В states лежат балансы — бонусы сгорают.
+    UserOrganizationState.objects.filter(user=user).delete()
+    Notification.objects.filter(user=user).delete()
+    UserDevice.objects.filter(user=user).delete()
+
+    # Отозвать выданные refresh-токены.
+    for token in OutstandingToken.objects.filter(user=user):
+        BlacklistedToken.objects.get_or_create(token=token)
+
+    # 3. Уведомить, пока номер ещё известен. user=None: Notification только
+    #    что удалены, новая запись снова привязалась бы к удаляемому.
+    if notify:
+        send_sms(old_phone, NotificationEvent.SECURITY_ALERT,
+                 context={'subject': 'аккаунт PAYDA удалён'},
+                 language=user.language, user=None)
+
+    # 4. Обезличить.
+    if user.avatar:
+        user.avatar.delete(save=False)
+    user.phone = f'DELETED-{secrets.token_hex(6)}'   # ровно 20 символов
+    user.first_name = ''
+    user.last_name = ''
+    user.email = ''
+    user.birth_date = None
+    user.public_code = None
+    user.qr_token = None
+    user.pin_hash = ''
+    user.pin_updated_at = None
+    user.is_active = False
+    user.is_registration_complete = False
+    user.deleted_at = now
+    user.save()
+
+    # 5. Аудит: факт фиксируем, телефон из старых записей вычищаем.
+    log_action(AuditAction.ACCOUNT_DELETED, actor=actor or user, request=request,
+               entity_type='User', entity_id=user.id, after={'deleted_at': now.isoformat()})
+    AuditLog.objects.filter(actor_id=user.id).update(actor_phone='')
+
+    return user
+
+
+@transaction.atomic
+def confirm_account_deletion(*, user, challenge_id, code, request=None):
+    """Проверяет код и обезличивает аккаунт. Операция необратима."""
+    if user.role != Role.USER:
+        raise PermissionDeniedError(message='Удаление доступно только клиентам')
+
+    challenge = (
+        OtpChallenge.objects.select_for_update(of=('self',))
+        .filter(pk=challenge_id, user=user, purpose=OtpPurpose.ACCOUNT_DELETE)
+        .first()
+    )
+    if challenge is None:
+        raise DomainError(code=ErrorCode.OTP_INVALID,
+                          message='Запрос на удаление не найден', status_code=404)
+    if challenge.status != OtpStatus.PENDING:
+        raise DomainError(code=ErrorCode.OTP_INVALID, message='Код уже использован')
+    if challenge.is_expired:
+        challenge.status = OtpStatus.EXPIRED
+        challenge.save(update_fields=['status', 'updated_at'])
+        raise DomainError(code=ErrorCode.OTP_EXPIRED, message='Срок действия кода истёк')
+
+    _validate_code(challenge, code)
+
+    anonymize_user(user=user, request=request)
+    OtpChallenge.objects.filter(user=user).delete()
+    return True
