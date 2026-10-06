@@ -1,19 +1,11 @@
 import logging
 
 from apps.audit.models import AuditLog
+from apps.common.net import client_ip
 from apps.common.logging import get_request_id, scrub
 from apps.common.models import ActorType
 
 logger = logging.getLogger('alasoft.audit')
-
-
-def _client_ip(request):
-    if request is None:
-        return None
-    forwarded = request.META.get('HTTP_X_FORWARDED_FOR', '')
-    if forwarded:
-        return forwarded.split(',')[0].strip()
-    return request.META.get('REMOTE_ADDR')
 
 
 def actor_from(user):
@@ -45,7 +37,7 @@ def log_action(action, *, actor=None, request=None, entity_type='', entity_id=''
             before=scrub(before or {}),
             after=scrub(after or {}),
             reason=reason or '',
-            ip_address=_client_ip(request),
+            ip_address=client_ip(request),
             user_agent=(request.META.get('HTTP_USER_AGENT', '')[:255] if request else ''),
             request_id=get_request_id(),
         )

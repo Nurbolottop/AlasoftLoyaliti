@@ -149,11 +149,16 @@ class User(UUIDModel, AbstractBaseUser, PermissionsMixin):
         return bool(self.pin_locked_until and self.pin_locked_until > timezone.now())
 
     def register_failed_pin(self):
+        """Каждые PIN_MAX_ATTEMPTS ошибок — пауза, после PIN_HARD_LOCK_ATTEMPTS
+        подряд — блок до сброса PIN по коду подтверждения. Счётчик не
+        обнуляется на паузе: иначе 4-значный PIN перебирается за недели."""
         self.failed_pin_attempts += 1
         fields = ['failed_pin_attempts']
-        if self.failed_pin_attempts >= settings.PIN_MAX_ATTEMPTS:
+        if self.failed_pin_attempts >= settings.PIN_HARD_LOCK_ATTEMPTS:
+            self.pin_locked_until = timezone.now() + timedelta(days=3650)
+            fields.append('pin_locked_until')
+        elif self.failed_pin_attempts % settings.PIN_MAX_ATTEMPTS == 0:
             self.pin_locked_until = timezone.now() + timedelta(seconds=settings.PIN_LOCKOUT_SECONDS)
-            self.failed_pin_attempts = 0
             fields.append('pin_locked_until')
         self.save(update_fields=fields)
 

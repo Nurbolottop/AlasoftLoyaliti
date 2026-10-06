@@ -239,10 +239,20 @@ REST_FRAMEWORK = {
         'otp_request_phone': os.getenv('THROTTLE_OTP_PHONE', '5/hour'),
         'otp_request_ip': os.getenv('THROTTLE_OTP_IP', '20/hour'),
         'otp_verify': os.getenv('THROTTLE_OTP_VERIFY', '10/hour'),
+        'otp_verify_day': os.getenv('THROTTLE_OTP_VERIFY_DAY', '20/day'),
+        'otp_request_user': os.getenv('THROTTLE_OTP_REQUEST_USER', '5/hour'),
+        'otp_verify_user': os.getenv('THROTTLE_OTP_VERIFY_USER', '10/hour'),
+        # Мобильные операторы сажают много абонентов за один IP (CGNAT),
+        # поэтому IP-лимит мягкий: он против перебора с одного адреса,
+        # основная защита — лимиты на номер.
+        'auth_ip': os.getenv('THROTTLE_AUTH_IP', '200/hour'),
         'pin_login': os.getenv('THROTTLE_PIN_LOGIN', '10/hour'),
         'director_login': os.getenv('THROTTLE_DIRECTOR_LOGIN', '10/hour'),
     },
     'UNAUTHENTICATED_USER': None,
+    # Сколько доверенных прокси стоит перед приложением. None = прокси нет,
+    # и X-Forwarded-For не читается вовсе (иначе клиент подделает свой IP).
+    'NUM_PROXIES': int(os.getenv('NUM_PROXIES')) if os.getenv('NUM_PROXIES') else None,
 }
 
 SPECTACULAR_SETTINGS = {
@@ -304,6 +314,8 @@ OTP_TEST_ACCOUNTS = {
 PIN_LENGTH = int(os.getenv('PIN_LENGTH', 4))
 PIN_MAX_ATTEMPTS = int(os.getenv('PIN_MAX_ATTEMPTS', 5))
 PIN_LOCKOUT_SECONDS = int(os.getenv('PIN_LOCKOUT_SECONDS', 900))
+# Столько неверных PIN подряд — и вход по PIN закрыт до сброса через код.
+PIN_HARD_LOCK_ATTEMPTS = int(os.getenv('PIN_HARD_LOCK_ATTEMPTS', 10))
 
 REDEMPTION_TTL_SECONDS = int(os.getenv('REDEMPTION_TTL_SECONDS', 300))
 IDEMPOTENCY_RETENTION_DAYS = int(os.getenv('IDEMPOTENCY_RETENTION_DAYS', 7))

@@ -54,6 +54,7 @@ OTP_STATIC_CODE=
 PIN_LENGTH=4
 PIN_MAX_ATTEMPTS=5
 PIN_LOCKOUT_SECONDS=900
+PIN_HARD_LOCK_ATTEMPTS=10
 
 # --- Rate limiting ---------------------------------------------------------
 THROTTLE_OTP_PHONE=5/hour

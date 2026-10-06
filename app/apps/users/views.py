@@ -32,11 +32,15 @@ from apps.users.serializers import (
     avatar_url,
 )
 from apps.users.throttles import (
+    AuthIpThrottle,
     DirectorLoginThrottle,
     OtpIpThrottle,
+    OtpVerifyDailyThrottle,
     OtpVerifyThrottle,
     PhoneScopedThrottle,
     PinLoginThrottle,
+    UserOtpRequestThrottle,
+    UserOtpVerifyThrottle,
 )
 
 
@@ -68,7 +72,7 @@ class OtpRequestView(APIView):
 class OtpVerifyView(APIView):
     permission_classes = [AllowAny]
     authentication_classes = []
-    throttle_classes = [OtpVerifyThrottle]
+    throttle_classes = [OtpVerifyThrottle, OtpVerifyDailyThrottle, AuthIpThrottle]
     serializer_class = OtpVerifySerializer
 
     def post(self, request):
@@ -110,7 +114,7 @@ class RegisterCompleteView(APIView):
 class PinLoginView(APIView):
     permission_classes = [AllowAny]
     authentication_classes = []
-    throttle_classes = [PinLoginThrottle]
+    throttle_classes = [PinLoginThrottle, AuthIpThrottle]
     serializer_class = PinLoginSerializer
 
     def post(self, request):
@@ -163,7 +167,7 @@ class PinResetView(APIView):
 class DirectorLoginView(APIView):
     permission_classes = [AllowAny]
     authentication_classes = []
-    throttle_classes = [DirectorLoginThrottle]
+    throttle_classes = [DirectorLoginThrottle, AuthIpThrottle]
     serializer_class = DirectorLoginSerializer
 
     def post(self, request):
@@ -274,6 +278,7 @@ class MePhoneChangeRequestView(APIView):
     """Шаг 1 смены номера: код подтверждения уходит на новый телефон."""
 
     permission_classes = [IsAuthenticated]
+    throttle_classes = [UserOtpRequestThrottle]
     serializer_class = PhoneChangeRequestSerializer
 
     def post(self, request):
@@ -288,6 +293,7 @@ class MePhoneChangeConfirmView(APIView):
     """Шаг 2: номер меняется, идентификаторы клиента остаются прежними."""
 
     permission_classes = [IsAuthenticated]
+    throttle_classes = [UserOtpVerifyThrottle]
     serializer_class = PhoneChangeConfirmSerializer
 
     def post(self, request):
@@ -325,6 +331,7 @@ class MeDeleteRequestView(APIView):
     """Шаг 1 удаления аккаунта: код уходит на текущий номер."""
 
     permission_classes = [IsAuthenticated]
+    throttle_classes = [UserOtpRequestThrottle]
 
     def post(self, request):
         return Response(services.request_account_deletion(user=request.user, request=request))
@@ -335,6 +342,7 @@ class MeDeleteConfirmView(APIView):
     """Шаг 2: аккаунт обезличивается, все токены перестают действовать."""
 
     permission_classes = [IsAuthenticated]
+    throttle_classes = [UserOtpVerifyThrottle]
     serializer_class = AccountDeleteConfirmSerializer
 
     def post(self, request):

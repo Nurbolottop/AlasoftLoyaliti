@@ -11,6 +11,7 @@ from rest_framework_simplejwt.tokens import RefreshToken
 
 from apps.audit.models import AuditAction
 from apps.audit.services import log_action
+from apps.common.net import client_ip
 from apps.common.errors import DomainError, ErrorCode, PermissionDeniedError
 from apps.notifications.models import NotificationEvent
 from apps.notifications.services import notify_user, send_sms
@@ -99,7 +100,7 @@ def request_otp(*, phone, purpose, request=None, device_id=''):
         status=OtpStatus.PENDING,
         max_attempts=settings.OTP_MAX_ATTEMPTS,
         expires_at=now + timedelta(seconds=settings.OTP_TTL_SECONDS),
-        request_ip=_client_ip(request),
+        request_ip=client_ip(request),
         device_id=device_id or '',
     )
     challenge.set_code(code)
@@ -214,15 +215,6 @@ def consume_verification(*, token, phone, purposes):
         challenge.verification_token = ''
         challenge.save(update_fields=['status', 'consumed_at', 'verification_token', 'updated_at'])
         return challenge
-
-
-def _client_ip(request):
-    if request is None:
-        return None
-    forwarded = request.META.get('HTTP_X_FORWARDED_FOR', '')
-    if forwarded:
-        return forwarded.split(',')[0].strip()
-    return request.META.get('REMOTE_ADDR')
 
 
 @transaction.atomic
@@ -468,7 +460,7 @@ def request_phone_change(*, user, new_phone, request=None):
         status=OtpStatus.PENDING,
         max_attempts=settings.OTP_MAX_ATTEMPTS,
         expires_at=now + timedelta(seconds=settings.OTP_TTL_SECONDS),
-        request_ip=_client_ip(request),
+        request_ip=client_ip(request),
     )
     challenge.set_code(code)
     challenge.save()
@@ -595,7 +587,7 @@ def request_account_deletion(*, user, request=None):
         status=OtpStatus.PENDING,
         max_attempts=settings.OTP_MAX_ATTEMPTS,
         expires_at=now + timedelta(seconds=settings.OTP_TTL_SECONDS),
-        request_ip=_client_ip(request),
+        request_ip=client_ip(request),
     )
     challenge.set_code(code)
     challenge.save()
