@@ -48,12 +48,12 @@ PUSH_TEMPLATES = {
 
 SMS_TEMPLATES = {
     NotificationEvent.OTP: {
-        'ru': 'AlaSoft: код подтверждения {code}. Никому его не сообщайте.',
-        'ky': 'AlaSoft: ырастоо коду {code}. Эч кимге айтпаңыз.',
+        'ru': 'PAYDA: код подтверждения {code}. Никому его не сообщайте.',
+        'ky': 'PAYDA: ырастоо коду {code}. Эч кимге айтпаңыз.',
     },
     NotificationEvent.SECURITY_ALERT: {
-        'ru': 'AlaSoft: {subject}',
-        'ky': 'AlaSoft: {subject}',
+        'ru': 'PAYDA: {subject}',
+        'ky': 'PAYDA: {subject}',
     },
 }
 
