@@ -276,7 +276,7 @@ SIMPLE_JWT = {
 # ДОМЕННЫЕ НАСТРОЙКИ ЛОЯЛЬНОСТИ / БЕЗОПАСНОСТИ
 # =============================================================================
 
-OTP_CODE_LENGTH = int(os.getenv('OTP_CODE_LENGTH', 6))
+OTP_CODE_LENGTH = int(os.getenv('OTP_CODE_LENGTH', 4))
 OTP_TTL_SECONDS = int(os.getenv('OTP_TTL_SECONDS', 300))
 OTP_MAX_ATTEMPTS = int(os.getenv('OTP_MAX_ATTEMPTS', 5))
 OTP_RESEND_COOLDOWN_SECONDS = int(os.getenv('OTP_RESEND_COOLDOWN_SECONDS', 60))
