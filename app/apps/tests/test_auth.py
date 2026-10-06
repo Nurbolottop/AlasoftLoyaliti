@@ -217,12 +217,22 @@ def test_random_otp_when_static_code_is_empty(api, settings):
     assert all(len(c) == settings.OTP_CODE_LENGTH for c in codes)
 
 
-def test_system_check_warns_about_static_code(settings):
+def test_system_check_warns_about_static_code_in_dev(settings):
     from django.core.checks import run_checks
 
+    settings.DEBUG = True
     settings.OTP_STATIC_CODE = '1234'
     warnings = [w for w in run_checks() if getattr(w, 'id', '') == 'users.W001']
     assert warnings, 'manage.py check должен предупреждать о фиксированном OTP'
+
+
+def test_static_code_blocks_startup_on_prod_settings(settings):
+    from django.core.checks import ERROR, run_checks
+
+    settings.DEBUG = False
+    settings.OTP_STATIC_CODE = '1234'
+    errors = [e for e in run_checks() if getattr(e, 'id', '') == 'users.E001']
+    assert errors and errors[0].level == ERROR
 
 
 # --- вход существующего пользователя по SMS (запрос Android-команды) ---
