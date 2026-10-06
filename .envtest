@@ -73,12 +73,17 @@ PHONE_DEFAULT_REGION=KG
 LOGO_MAX_SIZE_BYTES=2097152
 
 # --- SMS-провайдер (адаптер) -----------------------------------------------
-# console — код печатается в лог (dev); paysoft — реальная отправка
+# console — код печатается в лог (dev); greenapi — WhatsApp; paysoft — SMS
 SMS_PROVIDER=console
 SMS_PAYSOFT_URL=
 SMS_PAYSOFT_LOGIN=
 SMS_PAYSOFT_PASSWORD=
 SMS_PAYSOFT_SENDER=AlaSoft
+# SMS_PROVIDER=greenapi — коды в WhatsApp. Значения из кабинета GREEN-API
+# (apiUrl, idInstance, apiTokenInstance). Токен — секрет, только в .env.
+GREENAPI_API_URL=
+GREENAPI_ID_INSTANCE=
+GREENAPI_API_TOKEN=
 
 # --- Push-провайдер (адаптер) ----------------------------------------------
 # console — push печатается в лог (dev); fcm — Firebase HTTP v1

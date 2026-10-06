@@ -317,6 +317,10 @@ SMS_PAYSOFT_URL = os.getenv('SMS_PAYSOFT_URL', '')
 SMS_PAYSOFT_LOGIN = os.getenv('SMS_PAYSOFT_LOGIN', '')
 SMS_PAYSOFT_PASSWORD = os.getenv('SMS_PAYSOFT_PASSWORD', '')
 SMS_PAYSOFT_SENDER = os.getenv('SMS_PAYSOFT_SENDER', 'AlaSoft')
+# SMS_PROVIDER=greenapi — коды уходят в WhatsApp через GREEN-API.
+GREENAPI_API_URL = os.getenv('GREENAPI_API_URL', '')
+GREENAPI_ID_INSTANCE = os.getenv('GREENAPI_ID_INSTANCE', '')
+GREENAPI_API_TOKEN = os.getenv('GREENAPI_API_TOKEN', '')
 
 PUSH_PROVIDER = os.getenv('PUSH_PROVIDER', 'console')
 FCM_PROJECT_ID = os.getenv('FCM_PROJECT_ID', '')

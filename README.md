@@ -196,7 +196,7 @@ app/
 | `SECRET_KEY`, `POSTGRES_PASSWORD` | секреты, уникальные на каждый стенд |
 | `ALLOWED_HOSTS`, `CSRF_TRUSTED_ORIGINS` | домены (origins — со схемой) |
 | `WEB_PORT` / `DB_PORT` / `REDIS_PORT` | порты на хосте |
-| `SMS_PROVIDER` | `console` (dev) или `paysoft` |
+| `SMS_PROVIDER` | `console` (dev), `greenapi` (WhatsApp) или `paysoft` |
 | `PUSH_PROVIDER` | `console` (dev) или `fcm` |
 | `OTP_DEBUG_RETURN_CODE` | **на проде строго `false`** — иначе код придёт в ответе API |
 | `OTP_*`, `PIN_*`, `THROTTLE_*` | TTL, лимиты попыток, rate limiting |
@@ -328,7 +328,7 @@ Ledger (`transactions`, `cashback_lots`, `audit_logs`) не очищается �
 ### Чек-лист перед продом
 
 - `OTP_DEBUG_RETURN_CODE=false`
-- `SMS_PROVIDER=paysoft` с заполненными кредами, `PUSH_PROVIDER=fcm` с service-account
+- `SMS_PROVIDER=greenapi` с заполненными `GREENAPI_*`, пустой `OTP_STATIC_CODE`, `PUSH_PROVIDER=fcm` с service-account
 - свои `SECRET_KEY` и пароль БД, домены в `ALLOWED_HOSTS` / `CSRF_TRUSTED_ORIGINS`
 - HTTPS работает; после этого можно включить HSTS в `prod.py`
 - `docker compose exec web python manage.py check --deploy`

@@ -17,6 +17,15 @@ def check_sms_provider(app_configs, **kwargs):
             id='notifications.W001',
         ))
 
+    if settings.SMS_PROVIDER == 'greenapi' and not (
+        settings.GREENAPI_API_URL and settings.GREENAPI_ID_INSTANCE and settings.GREENAPI_API_TOKEN
+    ):
+        issues.append(Warning(
+            'SMS_PROVIDER=greenapi, но креды GREEN-API заполнены не все — коды не уйдут.',
+            hint='Заполните GREENAPI_API_URL/ID_INSTANCE/API_TOKEN в .env.',
+            id='notifications.W003',
+        ))
+
     if settings.SMS_PROVIDER == 'console' and not settings.DEBUG:
         issues.append(Warning(
             'SMS_PROVIDER=console на боевых настройках: коды подтверждения '
