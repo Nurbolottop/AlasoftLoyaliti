@@ -38,7 +38,8 @@ def program_payload(organization):
         'loyalty_type': organization.loyalty_type,
         'visit_program': program if is_visit else None,
         'cashback_program': None if is_visit else program,
-        'can_change_loyalty_type': not _has_transactions(organization),
+        # Партнёр тип не меняет никогда — выбирается только при создании
+        'can_change_loyalty_type': False,
     }).data
 
 

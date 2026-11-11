@@ -2,7 +2,7 @@
 
 import pytest
 
-from apps.organizations.models import CashbackProgram, LoyaltyType, Organization, VisitProgram
+from apps.organizations.models import LoyaltyType, Organization, VisitProgram
 from apps.tests.conftest import auth_client, post
 
 pytestmark = pytest.mark.django_db
@@ -43,16 +43,28 @@ def test_admin_updates_cashback_settings(cashback_admin_api, cashback_org):
     assert cashback_org.cashback_program.expiry_days == 30
 
 
-def test_admin_switches_loyalty_type_while_no_transactions(visit_admin_api, visit_org):
+def test_admin_cannot_switch_loyalty_type_even_without_transactions(visit_admin_api, visit_org):
+    """Тип выбирается только при создании организации — партнёр его не меняет."""
+    assert visit_admin_api.get(PROGRAM).data['data']['can_change_loyalty_type'] is False
+
     r = visit_admin_api.patch(PROGRAM, {
         'loyalty_type': 'CASHBACK',
         'cashback_program': {'cashback_rate_bps': 300, 'max_spend_percent_bps': 2000, 'expiry_days': 60},
     }, format='json')
-    assert r.status_code == 200, r.data
+    assert r.status_code == 409, r.data
+    assert r.data['error']['code'] == 'LOYALTY_TYPE_LOCKED'
 
     visit_org.refresh_from_db()
-    assert visit_org.loyalty_type == LoyaltyType.CASHBACK
-    assert CashbackProgram.objects.filter(organization=visit_org).exists()
+    assert visit_org.loyalty_type == LoyaltyType.VISIT
+
+
+def test_admin_may_send_same_loyalty_type(visit_admin_api, visit_org):
+    r = visit_admin_api.patch(PROGRAM, {
+        'loyalty_type': 'VISIT', 'visit_program': {'target_visits': 7},
+    }, format='json')
+    assert r.status_code == 200, r.data
+    visit_org.visit_program.refresh_from_db()
+    assert visit_org.visit_program.target_visits == 7
 
 
 def test_type_switch_blocked_after_transactions(visit_admin_api, client_user, visit_org):

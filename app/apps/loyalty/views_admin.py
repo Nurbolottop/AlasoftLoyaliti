@@ -12,7 +12,7 @@ from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from apps.common.errors import DomainError, ErrorCode
+from apps.common.errors import ConflictError, DomainError, ErrorCode
 from apps.common.idempotency import get_idempotency_key, run_idempotent
 from apps.common.permissions import IsOrganizationAdmin, current_organization
 from apps.loyalty.models import (
@@ -435,8 +435,8 @@ class AdminProgramView(AdminBaseView):
     """Настройки программы своей организации (чтение и правка).
 
     Организация берётся из привязки администратора; organization_id из тела
-    не принимается. Смена типа при существующих транзакциях запрещена — то же
-    правило, что и у директора (ТЗ backend §6).
+    не принимается. Тип программы партнёр не меняет: он выбирается один раз
+    при создании организации, дальше правятся только параметры программы.
     """
 
     serializer_class = OrganizationProgramSerializer
@@ -453,9 +453,15 @@ class AdminProgramView(AdminBaseView):
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
 
+        # Тот же тип в теле допустим (старые версии приложения шлют его всегда)
+        if data.get('loyalty_type') and data['loyalty_type'] != organization.loyalty_type:
+            raise ConflictError(
+                code=ErrorCode.LOYALTY_TYPE_LOCKED,
+                message='Тип программы выбирается при создании организации и не меняется',
+            )
+
         update_loyalty_program(
             organization=organization,
-            loyalty_type=data.get('loyalty_type'),
             visit_data=data.get('visit_program'),
             cashback_data=data.get('cashback_program'),
             actor=request.user,
