@@ -24,12 +24,13 @@ from apps.director.serializers import (
     AuditLogSerializer,
     BlockSerializer,
     CreateOrganizationAdminSerializer,
+    DirectorTransactionSerializer,
     DirectorUserSerializer,
     OrganizationCreateSerializer,
     OrganizationUpdateSerializer,
 )
 from apps.loyalty.models import Transaction, UserOrganizationState
-from apps.loyalty.serializers import DirectorReverseSerializer, TransactionSerializer
+from apps.loyalty.serializers import DirectorReverseSerializer
 from apps.loyalty.services import reversal as reversal_service
 from apps.loyalty.services import statistics as statistics_service
 from apps.organizations.models import (
@@ -76,9 +77,15 @@ class OrganizationListCreateView(DirectorBaseView):
         loyalty_type = request.query_params.get('loyalty_type')
         if loyalty_type:
             queryset = queryset.filter(loyalty_type=loyalty_type)
+        category = request.query_params.get('category')
+        if category:
+            queryset = queryset.filter(category_id=category)
         search = request.query_params.get('search', '').strip()
         if search:
-            queryset = queryset.filter(Q(name__icontains=search) | Q(phone__icontains=search))
+            queryset = queryset.filter(
+                Q(name__icontains=search) | Q(phone__icontains=search)
+                | Q(address__icontains=search)
+            )
 
         from apps.common.pagination import DefaultPagination
         paginator = DefaultPagination()
@@ -317,6 +324,21 @@ class OrganizationAdminView(DirectorBaseView):
         return Response({'detail': 'Доступ администратора отозван'})
 
 
+def _program_brief(organization):
+    """Текущие условия программы — для подписей «5+1» и «5%» в карточке клиента."""
+    if organization.loyalty_type == LoyaltyType.VISIT:
+        program = getattr(organization, 'visit_program', None)
+        return program and {
+            'target_visits': program.target_visits, 'reward_count': program.reward_count,
+        }
+    program = getattr(organization, 'cashback_program', None)
+    return program and {
+        'cashback_rate_bps': program.cashback_rate_bps,
+        'max_spend_percent_bps': program.max_spend_percent_bps,
+        'expiry_days': program.expiry_days,
+    }
+
+
 @extend_schema(tags=['director'])
 class DirectorUsersView(DirectorBaseView, ListAPIView):
     """Поиск клиентов по телефону, имени, ID и 6-значному коду."""
@@ -325,6 +347,11 @@ class DirectorUsersView(DirectorBaseView, ListAPIView):
 
     def get_queryset(self):
         queryset = User.objects.filter(role=Role.USER)
+        params = self.request.query_params
+        if params.get('organization_id'):
+            queryset = queryset.filter(loyalty_states__organization_id=params['organization_id'])
+        if params.get('is_active') in ('true', 'false'):
+            queryset = queryset.filter(is_active=params['is_active'] == 'true')
         search = self.request.query_params.get('search', '').strip()
         if search:
             filters = Q(first_name__icontains=search) | Q(last_name__icontains=search)
@@ -350,19 +377,27 @@ class DirectorUserDetailView(DirectorBaseView):
 
         states = (
             UserOrganizationState.objects.filter(user=user)
-            .select_related('organization')
+            .select_related('organization__visit_program', 'organization__cashback_program')
             .order_by('-last_activity_at')
         )
         return Response({
-            **DirectorUserSerializer(user).data,
+            **DirectorUserSerializer(user, context={'request': request}).data,
             'organizations': [
                 {
                     'organization_id': str(state.organization_id),
                     'organization_name': state.organization.name,
                     'loyalty_type': state.organization.loyalty_type,
+                    'program': _program_brief(state.organization),
                     'visit_progress': state.visit_progress,
+                    'total_visits': state.total_visits,
                     'available_gifts': state.available_gifts,
+                    'total_gifts_earned': state.total_gifts_earned,
+                    'total_gifts_used': state.total_gifts_used,
                     'cashback_available': state.cashback_available,
+                    'cashback_total_earned': state.cashback_total_earned,
+                    'cashback_total_spent': state.cashback_total_spent,
+                    'cashback_total_expired': state.cashback_total_expired,
+                    'first_activity_at': state.first_activity_at,
                     'last_activity_at': state.last_activity_at,
                 }
                 for state in states
@@ -374,11 +409,20 @@ class DirectorUserDetailView(DirectorBaseView):
 class DirectorTransactionsView(DirectorBaseView, ListAPIView):
     """Глобальный журнал транзакций платформы."""
 
-    serializer_class = TransactionSerializer
+    serializer_class = DirectorTransactionSerializer
 
     def get_queryset(self):
-        queryset = Transaction.objects.all().select_related('organization')
+        queryset = Transaction.objects.all().select_related('organization', 'user')
         params = self.request.query_params
+        search = params.get('search', '').strip()
+        if search:
+            people = Q(first_name__icontains=search) | Q(last_name__icontains=search) \
+                | Q(phone__icontains=search)
+            queryset = queryset.filter(
+                Q(user__in=User.objects.filter(people))
+                | Q(actor_id__in=User.objects.filter(people).values('id'))
+                | Q(organization__name__icontains=search)
+            )
         if params.get('organization_id'):
             queryset = queryset.filter(organization_id=params['organization_id'])
         if params.get('user_id'):
@@ -387,11 +431,27 @@ class DirectorTransactionsView(DirectorBaseView, ListAPIView):
             queryset = queryset.filter(type=params['type'])
         if params.get('status'):
             queryset = queryset.filter(status=params['status'])
-        if params.get('date_from'):
-            queryset = queryset.filter(created_at__gte=params['date_from'])
-        if params.get('date_to'):
-            queryset = queryset.filter(created_at__lte=params['date_to'])
-        return queryset
+        return _filter_period(queryset, params)
+
+    def list(self, request, *args, **kwargs):
+        page = self.paginate_queryset(self.filter_queryset(self.get_queryset()))
+        actor_ids = {tx.actor_id for tx in page if tx.actor_id}
+        actors = {user.id: user for user in User.objects.filter(id__in=actor_ids)}
+        serializer = self.get_serializer(page, many=True, context={
+            **self.get_serializer_context(), 'actors': actors,
+        })
+        return self.get_paginated_response(serializer.data)
+
+
+def _filter_period(queryset, params):
+    """date_from/date_to — даты YYYY-MM-DD, обе включительно (пояс проекта)."""
+    date_from = statistics_service.day_bound(params.get('date_from'), end=False)
+    date_to = statistics_service.day_bound(params.get('date_to'), end=True)
+    if date_from:
+        queryset = queryset.filter(created_at__gte=date_from)
+    if date_to:
+        queryset = queryset.filter(created_at__lte=date_to)
+    return queryset
 
 
 @extend_schema(tags=['director'], request=DirectorReverseSerializer, responses=OpenApiTypes.OBJECT)
@@ -424,13 +484,16 @@ class DirectorReverseView(DirectorBaseView):
 @extend_schema(tags=['director'], responses=OpenApiTypes.OBJECT)
 class DirectorStatisticsView(DirectorBaseView):
     def get(self, request):
+        date_from, date_to = statistics_service.period_from_params(request.query_params)
         organization_id = request.query_params.get('organization_id')
         if organization_id:
             organization = Organization.objects.filter(pk=organization_id).first()
             if organization is None:
                 raise NotFoundError(code=ErrorCode.ORGANIZATION_NOT_FOUND, message='Организация не найдена')
-            return Response(statistics_service.organization_statistics(organization))
-        return Response(statistics_service.platform_statistics())
+            return Response(statistics_service.organization_statistics(
+                organization, date_from=date_from, date_to=date_to, with_series=True))
+        return Response(statistics_service.platform_statistics(
+            date_from=date_from, date_to=date_to, with_series=True))
 
 
 @extend_schema(tags=['director'])
@@ -448,11 +511,13 @@ class DirectorAuditView(DirectorBaseView, ListAPIView):
             queryset = queryset.filter(organization_id=params['organization_id'])
         if params.get('entity_id'):
             queryset = queryset.filter(entity_id=params['entity_id'])
-        if params.get('date_from'):
-            queryset = queryset.filter(created_at__gte=params['date_from'])
-        if params.get('date_to'):
-            queryset = queryset.filter(created_at__lte=params['date_to'])
-        return queryset
+        search = params.get('search', '').strip()
+        if search:
+            queryset = queryset.filter(
+                Q(actor_phone__icontains=search) | Q(organization__name__icontains=search)
+                | Q(reason__icontains=search)
+            )
+        return _filter_period(queryset, params)
 
 
 @extend_schema(tags=['director'], request=CategorySerializer, responses=CategorySerializer)
@@ -477,7 +542,9 @@ class DirectorCategoriesView(DirectorBaseView):
 @extend_schema(tags=['director'], responses=OpenApiTypes.OBJECT)
 class DirectorDashboardView(DirectorBaseView):
     def get(self, request):
-        stats = statistics_service.platform_statistics()
+        date_from, date_to = statistics_service.period_from_params(request.query_params)
+        stats = statistics_service.platform_statistics(
+            date_from=date_from, date_to=date_to, with_series=True)
         recent = (
             Organization.objects.all().order_by('-created_at')[:5]
         )

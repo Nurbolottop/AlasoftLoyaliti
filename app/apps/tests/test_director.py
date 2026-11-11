@@ -155,3 +155,76 @@ def test_admin_statistics_scoped_to_own_organization(visit_admin_api, client_use
     assert response.status_code == 200
     assert response.data['data']['organization_id'] == str(visit_org.id)
     assert response.data['data']['visits'] == 1
+
+
+# --- данные для новой панели (макеты PAYDA Admin) ---
+
+def test_dashboard_has_daily_series_for_period(director_api, client_user, visit_org):
+    response = director_api.get('/api/v1/director/dashboard?date_from=2020-01-01&date_to=2020-01-07')
+    assert response.status_code == 200
+    stats = response.data['data']['statistics']
+    series = stats['series']
+    assert [point['date'] for point in series][0] == '2020-01-01'
+    assert len(series) == 7
+    # клиенты и организации созданы «сегодня» — в 2020 году их ещё не было
+    assert series[-1]['users_total'] == 0
+    assert stats['users_new_in_period'] == 0
+
+    current = director_api.get('/api/v1/director/dashboard').data['data']['statistics']
+    assert current['series'][-1]['users_total'] == current['users_total'] >= 1
+    assert current['organizations_new_in_period'] >= 1
+
+
+def test_statistics_series_and_turnover(director_api, cashback_admin_api, client_user, cashback_org):
+    post(cashback_admin_api, '/api/v1/admin/cashback/earn',
+         {'user_id': str(client_user.id), 'purchase_total': 1000_00}, idempotency_key='ser-1')
+
+    platform = director_api.get('/api/v1/director/statistics').data['data']
+    assert platform['turnover'] == 1000_00
+    assert platform['cashback_active_balance'] == 50_00
+    assert sum(point['cashback_earned'] for point in platform['series']) == 50_00
+
+    per_org = director_api.get(
+        f'/api/v1/director/statistics?organization_id={cashback_org.id}').data['data']
+    assert per_org['turnover'] == 1000_00
+    assert sum(point['cashback_earned'] for point in per_org['series']) == 50_00
+
+
+def test_transactions_include_client_and_actor(director_api, visit_admin_api, visit_admin,
+                                               client_user, visit_org):
+    post(visit_admin_api, '/api/v1/admin/visits', {'user_id': str(client_user.id)},
+         idempotency_key='who-1')
+
+    item = director_api.get('/api/v1/director/transactions').data['data'][0]
+    assert item['user']['phone'] == client_user.phone
+    assert item['actor']['phone'] == visit_admin.phone
+
+    found = director_api.get(f'/api/v1/director/transactions?search={client_user.first_name}')
+    assert len(found.data['data']) == 1
+    missing = director_api.get('/api/v1/director/transactions?search=несуществующий')
+    assert missing.data['data'] == []
+
+    old = director_api.get('/api/v1/director/transactions?date_to=2020-01-01')
+    assert old.data['data'] == []
+
+
+def test_users_filtered_by_organization(director_api, visit_admin_api, client_user,
+                                        other_client_user, visit_org):
+    post(visit_admin_api, '/api/v1/admin/visits', {'user_id': str(client_user.id)},
+         idempotency_key='uo-1')
+
+    response = director_api.get(f'/api/v1/director/users?organization_id={visit_org.id}')
+    assert [u['id'] for u in response.data['data']] == [str(client_user.id)]
+
+    detail = director_api.get(f'/api/v1/director/users/{client_user.id}').data['data']
+    state = detail['organizations'][0]
+    assert state['total_visits'] == 1
+    assert state['program'] == {'target_visits': 5, 'reward_count': 1}
+
+
+def test_audit_search(director_api, category):
+    post(director_api, ORGANIZATIONS, {
+        'name': 'Поисковая', 'category': str(category.id), 'loyalty_type': 'VISIT',
+    })
+    assert len(director_api.get('/api/v1/director/audit?search=Поисковая').data['data']) >= 1
+    assert director_api.get('/api/v1/director/audit?search=zzzz').data['data'] == []
