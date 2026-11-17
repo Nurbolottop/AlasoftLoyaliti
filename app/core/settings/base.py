@@ -335,8 +335,11 @@ REGULAR_CUSTOMER_WINDOW_DAYS = int(os.getenv('REGULAR_CUSTOMER_WINDOW_DAYS', 90)
 # Лента уведомлений хранится 90 дней (9.5)
 NOTIFICATION_RETENTION_DAYS = int(os.getenv('NOTIFICATION_RETENTION_DAYS', 90))
 
-# Приглашение друзей (6.9)
-REFERRAL_INVITE_BASE_URL = os.getenv('REFERRAL_INVITE_BASE_URL', 'https://topto.kg/i/')
+# Приглашение друзей (6.9): страница /i/<код> на основном домене ведёт в магазин
+REFERRAL_INVITE_BASE_URL = os.getenv('REFERRAL_INVITE_BASE_URL', 'https://alasoft.website/i/')
+INVITE_APP_NAME = os.getenv('INVITE_APP_NAME', 'TOPTO')
+APP_STORE_URL = os.getenv('APP_STORE_URL', '')
+GOOGLE_PLAY_URL = os.getenv('GOOGLE_PLAY_URL', '')
 
 # Контакты поддержки для экрана «Контакты» (6.8)
 SUPPORT_PHONE = os.getenv('SUPPORT_PHONE', '')

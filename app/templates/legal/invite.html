@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Приглашение в {{ app_name }}</title>
+<meta name="description" content="Вас пригласили в {{ app_name }} — карты лояльности любимых заведений в одном приложении.">
+<meta name="robots" content="noindex">
+<meta property="og:title" content="Приглашение в {{ app_name }}">
+<meta property="og:description" content="Скачайте приложение и копите бонусы в любимых заведениях.">
+<style>
+  :root {
+    --brand: #6D28D9; --bg: #F6F5FB; --surface: #FFFFFF; --border: #E5E1F2;
+    --text: #1E1B33; --text-2: #6B6789; --radius: 16px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --brand: #B79BFF; --bg: #131024; --surface: #1C1833; --border: #332C52;
+            --text: #F2F0FA; --text-2: #A9A4C4; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 16px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+         -webkit-font-smoothing: antialiased; }
+  .wrap { max-width: 480px; margin: 0 auto; padding: 48px 20px 64px; text-align: center; }
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 32px 24px; }
+  h1 { font-size: 26px; line-height: 1.25; margin: 0 0 10px; }
+  p { color: var(--text-2); margin: 0 0 20px; }
+  .code { display: inline-block; font-size: 28px; font-weight: 800; letter-spacing: 4px; color: var(--brand);
+          border: 2px dashed var(--border); border-radius: 12px; padding: 8px 20px; margin: 4px 0 8px; }
+  .hint { font-size: 14px; margin-bottom: 24px; }
+  .stores { display: flex; flex-direction: column; gap: 12px; }
+  .btn { display: block; padding: 14px 18px; border-radius: 12px; background: var(--brand); color: #fff;
+         font-weight: 700; text-decoration: none; }
+  .btn.alt { background: transparent; color: var(--brand); border: 1.5px solid var(--brand); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="card">
+    <h1>Вас пригласили в {{ app_name }}</h1>
+    <p>Карты лояльности любимых заведений в одном приложении: отметки, подарки и кешбэк.</p>
+    {% if code %}
+      <div class="code">{{ code }}</div>
+      <p class="hint">Введите этот код при регистрации, чтобы друг увидел вас в своём списке.</p>
+    {% endif %}
+    <div class="stores">
+      {% if app_store_url %}<a class="btn" id="ios" href="{{ app_store_url }}">Скачать в App Store</a>{% endif %}
+      {% if google_play_url %}<a class="btn{% if app_store_url %} alt{% endif %}" id="android" href="{{ google_play_url }}">Скачать в Google Play</a>{% endif %}
+      {% if not app_store_url and not google_play_url %}<p>Приложение скоро появится в App Store и Google Play.</p>{% endif %}
+    </div>
+  </div>
+</div>
+<script>
+  // С телефона сразу ведём в нужный магазин; с компьютера показываем обе кнопки
+  (function () {
+    var ua = navigator.userAgent || '';
+    var link = /iPhone|iPad|iPod/i.test(ua) ? document.getElementById('ios')
+             : /Android/i.test(ua) ? document.getElementById('android') : null;
+    if (link) { window.location.replace(link.href); }
+  })();
+</script>
+</body>
+</html>

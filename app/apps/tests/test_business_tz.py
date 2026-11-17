@@ -492,3 +492,11 @@ def test_admin_endpoints_require_authentication(api):
     response = api.get('/api/v1/admin/overview')
     assert response.status_code == 401
     assert response.data['error']['code'] == 'AUTHENTICATION_REQUIRED'
+
+
+def test_invite_page_on_main_domain(api, client_user):
+    code = client_app(client_user).get('/api/v1/me/referral').data['data']
+    assert code['invite_url'].startswith('https://alasoft.website/i/')
+    page = api.get(f'/i/{code["code"]}')
+    assert page.status_code == 200
+    assert code['code'] in page.content.decode()

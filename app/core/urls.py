@@ -4,6 +4,7 @@ from django.conf import settings
 from django.conf.urls.static import static
 from django.contrib import admin
 from django.http import JsonResponse
+from django.shortcuts import render
 from django.urls import include, path
 from django.views.generic import TemplateView
 from drf_spectacular.views import SpectacularAPIView, SpectacularRedocView, SpectacularSwaggerView
@@ -17,6 +18,17 @@ from apps.users.urls import auth_urlpatterns, me_urlpatterns
 
 def healthcheck(_request):
     return JsonResponse({'success': True, 'data': {'status': 'ok'}})
+
+
+def invite_page(request, code):
+    """Ссылка-приглашение друга (6.9): код для регистрации и переход в магазин."""
+    code = ''.join(ch for ch in code.upper() if ch.isalnum())[:16]
+    return render(request, 'legal/invite.html', {
+        'code': code,
+        'app_name': settings.INVITE_APP_NAME,
+        'app_store_url': settings.APP_STORE_URL,
+        'google_play_url': settings.GOOGLE_PLAY_URL,
+    })
 
 
 api_v1 = [
@@ -37,6 +49,7 @@ urlpatterns = [
     path('terms', TemplateView.as_view(template_name='legal/terms.html'), name='terms'),
     path('account-delete', TemplateView.as_view(template_name='legal/account-delete.html'),
          name='account-delete'),
+    path('i/<str:code>', invite_page, name='invite'),
     path('api/v1/', include((api_v1, 'v1'))),
 
     # OpenAPI / Swagger (ТЗ backend §32)
