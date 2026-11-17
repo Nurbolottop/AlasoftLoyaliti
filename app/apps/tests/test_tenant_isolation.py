@@ -122,11 +122,16 @@ def test_revoked_admin_loses_access(visit_admin, visit_org):
     assert api.get('/api/v1/admin/statistics').status_code == 401
 
 
-def test_blocked_organization_revokes_admin_access(visit_admin, visit_org):
+def test_blocked_organization_is_read_only_for_staff(visit_admin, visit_org, client_user):
+    """Заблокированное заведение: читать можно, менять — 403 ORGANIZATION_BLOCKED (BACKEND_TZ 8)."""
     api = auth_client(visit_admin)
     visit_org.status = 'BLOCKED'
     visit_org.save(update_fields=['status'])
-    assert api.get('/api/v1/admin/statistics').status_code == 401
+    assert api.get('/api/v1/admin/statistics').status_code == 200
+
+    response = post(api, '/api/v1/admin/visits', {'user_id': str(client_user.id)}, idempotency_key='blk-1')
+    assert response.status_code == 403
+    assert response.data['error']['code'] == 'ORGANIZATION_BLOCKED'
 
 
 def test_catalog_hides_blocked_organizations(user_api, visit_org, cashback_org):

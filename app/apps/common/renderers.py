@@ -21,8 +21,11 @@ class EnvelopeJSONRenderer(JSONRenderer):
         elif isinstance(data, dict) and set(data.keys()) <= {'success', 'data', 'meta'} and 'data' in data:
             payload = data
         elif isinstance(data, dict) and 'results' in data and 'pagination' in data:
-            # Постраничный ответ из apps.common.pagination
-            payload = {'success': True, 'data': data['results'], 'meta': {'pagination': data['pagination']}}
+            # Постраничный ответ из apps.common.pagination; прочие ключи
+            # (например, unread у ленты уведомлений) уходят в meta
+            meta = {'pagination': data['pagination']}
+            meta.update({k: v for k, v in data.items() if k not in ('results', 'pagination')})
+            payload = {'success': True, 'data': data['results'], 'meta': meta}
         else:
             payload = {'success': True, 'data': data}
 

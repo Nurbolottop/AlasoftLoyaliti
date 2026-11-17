@@ -29,6 +29,12 @@ class AuditAction(models.TextChoices):
     REDEMPTION_REJECTED = 'REDEMPTION_REJECTED', 'Списание отклонено'
     TRANSACTION_REVERSED = 'TRANSACTION_REVERSED', 'Транзакция отменена'
     CASHBACK_EXPIRED = 'CASHBACK_EXPIRED', 'Cashback сгорел'
+    EMPLOYEE_CREATED = 'EMPLOYEE_CREATED', 'Добавлен сотрудник'
+    EMPLOYEE_UPDATED = 'EMPLOYEE_UPDATED', 'Изменён сотрудник'
+    EMPLOYEE_DELETED = 'EMPLOYEE_DELETED', 'Удалён сотрудник'
+    CATALOG_UPDATED = 'CATALOG_UPDATED', 'Изменён каталог'
+    CUSTOMER_NOTE_UPDATED = 'CUSTOMER_NOTE_UPDATED', 'Изменена заметка о клиенте'
+    ORGANIZATION_JOINED = 'ORGANIZATION_JOINED', 'Покупатель присоединился к заведению'
 
 
 class AuditLog(UUIDModel):

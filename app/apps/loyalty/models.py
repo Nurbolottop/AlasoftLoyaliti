@@ -1,3 +1,5 @@
+from datetime import datetime, timezone as dt_timezone
+
 from django.conf import settings
 from django.db import models
 from django.utils import timezone
@@ -14,6 +16,12 @@ class TransactionType(models.TextChoices):
     CASHBACK_SPEND = 'CASHBACK_SPEND', 'Списан cashback'
     CASHBACK_EXPIRE = 'CASHBACK_EXPIRE', 'Cashback сгорел'
     REVERSAL = 'REVERSAL', 'Операция отменена'
+
+
+# Срок «не сгорает» (expiry_days = 0). Поле expires_at обязательное и
+# участвует во всех выборках доступного баланса, поэтому вместо NULL —
+# дата, до которой ничего не доживёт.
+NEVER_EXPIRES_AT = datetime(9999, 1, 1, tzinfo=dt_timezone.utc)
 
 
 class TransactionStatus(models.TextChoices):
@@ -51,6 +59,11 @@ class UserOrganizationState(UUIDModel, TimeStampedModel):
 
     first_activity_at = models.DateTimeField(null=True, blank=True)
     last_activity_at = models.DateTimeField(null=True, blank=True)
+    # Клиент заведения с этого момента: «Присоединиться» или первая операция.
+    # Пустое значение — покупателя только отсканировали, клиентом он ещё не стал.
+    joined_at = models.DateTimeField(null=True, blank=True, db_index=True)
+    # Заметка заведения о клиенте; покупатель её не видит.
+    note = models.CharField(max_length=300, blank=True, default='')
 
     class Meta:
         db_table = 'user_organization_states'
@@ -71,6 +84,8 @@ class UserOrganizationState(UUIDModel, TimeStampedModel):
         now = timezone.now()
         if self.first_activity_at is None:
             self.first_activity_at = now
+        if self.joined_at is None:
+            self.joined_at = now
         self.last_activity_at = now
 
 
@@ -98,6 +113,25 @@ class Transaction(UUIDModel):
     idempotency_key = models.CharField(max_length=255, blank=True, default='')
     metadata = models.JSONField(default=dict, blank=True)
     reason = models.CharField(max_length=255, blank=True, default='')
+
+    # Услуга из каталога. Название и цена копируются: если позицию потом
+    # переименуют или удалят, история не меняется (3.4).
+    service = models.ForeignKey(
+        'organizations.CatalogItem', on_delete=models.SET_NULL,
+        null=True, blank=True, related_name='transactions',
+    )
+    service_name = models.CharField(max_length=80, blank=True, default='')
+    service_price = models.BigIntegerField(null=True, blank=True)
+    # Сколько заплачено деньгами. Заполнено ровно у одной операции каждой
+    # оплаты (визит или покупка) — из него считаются выручка и средний чек.
+    cash_paid = models.BigIntegerField(null=True, blank=True)
+    # Кто провёл операцию в заведении; имя копируется на случай удаления.
+    employee = models.ForeignKey(
+        'organizations.OrganizationAdmin', on_delete=models.SET_NULL,
+        null=True, blank=True, related_name='transactions',
+    )
+    employee_name = models.CharField(max_length=150, blank=True, default='')
+
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)
 
     class Meta:
@@ -110,6 +144,7 @@ class Transaction(UUIDModel):
             models.Index(fields=['organization', '-created_at']),
             models.Index(fields=['user', 'organization', '-created_at']),
             models.Index(fields=['type', '-created_at']),
+            models.Index(fields=['organization', 'employee', '-created_at']),
         ]
 
     def __str__(self):
@@ -265,6 +300,14 @@ class RedemptionRequest(UUIDModel, TimeStampedModel):
     created_by_admin = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.PROTECT,
         related_name='created_redemptions', null=True, blank=True,
+    )
+    created_by_employee = models.ForeignKey(
+        'organizations.OrganizationAdmin', on_delete=models.SET_NULL,
+        related_name='created_redemptions', null=True, blank=True,
+    )
+    service = models.ForeignKey(
+        'organizations.CatalogItem', on_delete=models.SET_NULL,
+        null=True, blank=True, related_name='redemptions',
     )
     resolved_at = models.DateTimeField(null=True, blank=True)
     reject_reason = models.CharField(max_length=255, blank=True, default='')

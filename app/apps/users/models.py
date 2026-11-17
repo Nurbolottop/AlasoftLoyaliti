@@ -21,7 +21,25 @@ PUBLIC_CODE_MAX_TRIES = 50
 class Role(models.TextChoices):
     USER = 'USER', 'Пользователь'
     ORGANIZATION_ADMIN = 'ORGANIZATION_ADMIN', 'Администратор организации'
+    # В БД не хранится: вычисляется по записи сотрудника при X-App: business
+    ORGANIZATION_EMPLOYEE = 'ORGANIZATION_EMPLOYEE', 'Сотрудник организации'
     DIRECTOR = 'DIRECTOR', 'Директор AlaSoft'
+
+
+class Gender(models.TextChoices):
+    MALE = 'MALE', 'Мужчина'
+    FEMALE = 'FEMALE', 'Женщина'
+
+
+class AppKind(models.TextChoices):
+    """Какое из двух мобильных приложений: покупателя или заведения."""
+
+    CLIENT = 'CLIENT', 'TOPTO'
+    BUSINESS = 'BUSINESS', 'TOPTO Business'
+
+
+REFERRAL_CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
+REFERRAL_CODE_LENGTH = 6
 
 
 class Language(models.TextChoices):
@@ -51,6 +69,7 @@ class User(UUIDModel, AbstractBaseUser, PermissionsMixin):
     first_name = models.CharField(max_length=100, blank=True, default='')
     last_name = models.CharField(max_length=100, blank=True, default='')
     birth_date = models.DateField(null=True, blank=True)
+    gender = models.CharField(max_length=8, choices=Gender.choices, null=True, blank=True)
 
     avatar = ResizedImageField(
         upload_to='users/avatars/',
@@ -79,6 +98,15 @@ class User(UUIDModel, AbstractBaseUser, PermissionsMixin):
     is_active = models.BooleanField(default=True)
     is_staff = models.BooleanField(default=False)
     is_registration_complete = models.BooleanField(default=False)
+
+    # Приглашение друзей (TOPTO «Друзья»): свой код и кто пригласил.
+    referral_code = models.CharField(max_length=16, unique=True, null=True, blank=True)
+    referred_by = models.ForeignKey(
+        'self', on_delete=models.SET_NULL, null=True, blank=True, related_name='referrals',
+    )
+    # {"operations": true, "expiring": true, "news": false}
+    notification_settings = models.JSONField(default=dict, blank=True)
+
     # Момент обезличивания. Строка пользователя остаётся: на неё ссылается
     # неизменяемый ledger, но персональных данных в ней больше нет.
     deleted_at = models.DateTimeField(null=True, blank=True, db_index=True)
@@ -111,9 +139,13 @@ class User(UUIDModel, AbstractBaseUser, PermissionsMixin):
         return bool(self.pin_hash)
 
     def ensure_identity(self):
-        """Выдаёт public_code и qr_token клиенту (идемпотентно)."""
+        """Выдаёт public_code и qr_token клиенту (идемпотентно).
+
+        Покупателем может быть и администратор заведения (5.2), поэтому код
+        выдаётся всем, кроме директора платформы.
+        """
         changed = []
-        if self.role == Role.USER:
+        if self.role != Role.DIRECTOR:
             if not self.public_code:
                 self.public_code = generate_public_code()
                 changed.append('public_code')
@@ -168,21 +200,40 @@ class User(UUIDModel, AbstractBaseUser, PermissionsMixin):
             self.pin_locked_until = None
             self.save(update_fields=['failed_pin_attempts', 'pin_locked_until'])
 
+    def ensure_referral_code(self):
+        if self.referral_code:
+            return self.referral_code
+        for _ in range(PUBLIC_CODE_MAX_TRIES):
+            code = ''.join(secrets.choice(REFERRAL_CODE_ALPHABET) for _ in range(REFERRAL_CODE_LENGTH))
+            if not User.objects.filter(referral_code=code).exists():
+                self.referral_code = code
+                if self.pk:
+                    User.objects.filter(pk=self.pk).update(referral_code=code)
+                return code
+        raise RuntimeError('Не удалось подобрать свободный referral_code')
+
+    @property
+    def staff_membership(self):
+        """Запись сотрудника (не удалённая), включённая или отключённая.
+
+        Один человек работает только в одном заведении (открытый вопрос 2).
+        """
+        if self.role == Role.DIRECTOR:
+            return None
+        if not hasattr(self, '_staff_membership'):
+            self._staff_membership = (
+                self.admin_memberships.select_related('organization')
+                .filter(deleted_at__isnull=True)
+                .order_by('-is_active', '-created_at')
+                .first()
+            )
+        return self._staff_membership
+
     @property
     def active_admin_membership(self):
-        """Активная привязка к организации для роли ORGANIZATION_ADMIN."""
-        if self.role != Role.ORGANIZATION_ADMIN:
-            return None
-        cached = getattr(self, '_active_admin_membership', None)
-        if cached is not None:
-            return cached
-        membership = (
-            self.admin_memberships.select_related('organization')
-            .filter(is_active=True)
-            .first()
-        )
-        self._active_admin_membership = membership
-        return membership
+        """Действующая запись сотрудника: не удалена и не отключена."""
+        membership = self.staff_membership
+        return membership if membership is not None and membership.is_active else None
 
 
 class UserDevice(UUIDModel, TimeStampedModel):
@@ -199,6 +250,9 @@ class UserDevice(UUIDModel, TimeStampedModel):
     app_version = models.CharField(max_length=32, blank=True, default='')
     fcm_token = models.CharField(max_length=512, blank=True, default='')
     language = models.CharField(max_length=8, choices=Language.choices, default=Language.RU)
+    # Оба приложения могут стоять на одном телефоне: события покупателя
+    # уходят на CLIENT, события заведения — на BUSINESS.
+    app = models.CharField(max_length=16, choices=AppKind.choices, default=AppKind.CLIENT)
     refresh_jti = models.CharField(max_length=64, blank=True, default='', db_index=True)
     is_trusted = models.BooleanField(default=False)
     is_active = models.BooleanField(default=True)
@@ -207,7 +261,7 @@ class UserDevice(UUIDModel, TimeStampedModel):
     class Meta:
         db_table = 'user_devices'
         constraints = [
-            models.UniqueConstraint(fields=['user', 'device_id'], name='uniq_user_device')
+            models.UniqueConstraint(fields=['user', 'device_id', 'app'], name='uniq_user_device_app')
         ]
         indexes = [models.Index(fields=['user', 'is_active'])]
 

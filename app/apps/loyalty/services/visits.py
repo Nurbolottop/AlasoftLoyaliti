@@ -16,6 +16,7 @@ from apps.loyalty.services.state import (
     ensure_client,
     ensure_organization_operational,
     lock_state,
+    operation_fields,
 )
 from apps.notifications.models import NotificationEvent
 from apps.notifications.services import notify_user
@@ -23,8 +24,12 @@ from apps.organizations.models import LoyaltyType
 
 
 @transaction.atomic
-def earn_visit(*, user, organization, admin, idempotency_key='', request=None, note=''):
+def earn_visit(*, user, organization, admin, idempotency_key='', request=None, note='',
+               employee=None, service=None, purchase_total=None):
     """Начисляет посещение и, при достижении target, создаёт подарок.
+
+    Оплаченный визит: ``cash_paid`` — переданная сумма, иначе цена услуги,
+    иначе 0 (визит засчитан, но сумма неизвестна).
 
     Порядок ровно как в ТЗ §12: authorize → resolve → check → lock → ledger →
     progress → gift → commit → push (после commit).
@@ -49,6 +54,10 @@ def earn_visit(*, user, organization, admin, idempotency_key='', request=None, n
             'reward_count': program.reward_count,
             'progress_before': state.visit_progress,
         },
+        **operation_fields(
+            service=service, employee=employee,
+            cash_paid=int(purchase_total) if purchase_total is not None else (service.price if service else 0),
+        ),
     )
 
     state.visit_progress += 1
@@ -108,7 +117,11 @@ def earn_visit(*, user, organization, admin, idempotency_key='', request=None, n
 
     notify_user(
         user, NotificationEvent.VISIT_EARNED, organization=organization,
-        context={'progress': state.visit_progress, 'target': program.target_visits},
+        context={
+            'progress': state.visit_progress, 'target': program.target_visits,
+            'transaction_id': str(visit_tx.id),
+            'visit_progress': state.visit_progress, 'target_visits': program.target_visits,
+        },
     )
     for gift in created_gifts:
         notify_user(

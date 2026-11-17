@@ -15,6 +15,7 @@ from apps.common.errors import DomainError, ErrorCode
 from apps.common.models import ActorType
 from apps.common.money import apply_bps
 from apps.loyalty.models import (
+    NEVER_EXPIRES_AT,
     CashbackLot,
     CashbackLotStatus,
     Transaction,
@@ -25,6 +26,7 @@ from apps.loyalty.services.state import (
     ensure_client,
     ensure_organization_operational,
     lock_state,
+    operation_fields,
 )
 from apps.notifications.models import NotificationEvent
 from apps.notifications.services import notify_user
@@ -65,16 +67,13 @@ def quote(*, user, organization, purchase_total, requested_spend=0):
         raise DomainError(code=ErrorCode.INVALID_AMOUNT, message='Сумма покупки должна быть больше нуля')
     if requested_spend < 0:
         raise DomainError(code=ErrorCode.INVALID_AMOUNT, message='Сумма списания не может быть отрицательной')
-    if purchase_total < program.min_purchase_amount:
-        raise DomainError(
-            code=ErrorCode.INVALID_AMOUNT,
-            message='Сумма покупки меньше минимальной для программы',
-            details={'min_purchase_amount': program.min_purchase_amount},
-        )
+    # Покупка меньше min_purchase_amount: бонусами платить нельзя, но
+    # начисление идёт как обычно (BACKEND_TZ 7.12).
+    min_purchase_reached = purchase_total >= program.min_purchase_amount
 
     available = available_amount(user, organization)
     limit_by_percent = apply_bps(purchase_total, program.max_spend_percent_bps)
-    max_allowed = min(available, limit_by_percent)
+    max_allowed = min(available, limit_by_percent) if min_purchase_reached else 0
 
     cash_paid = purchase_total - requested_spend
     earn = apply_bps(cash_paid, program.cashback_rate_bps) if cash_paid > 0 else 0
@@ -88,13 +87,22 @@ def quote(*, user, organization, purchase_total, requested_spend=0):
         'cash_paid': max(cash_paid, 0),
         'earn_amount': earn,
         'program': program.snapshot(),
-        'is_spend_allowed': requested_spend <= max_allowed,
+        'min_purchase_amount': program.min_purchase_amount,
+        'min_purchase_reached': min_purchase_reached,
+        'is_spend_allowed': requested_spend <= max_allowed and (min_purchase_reached or requested_spend == 0),
         'requires_confirmation': requested_spend > 0,
     }
 
 
 def validate_spend(quote_data):
     requested = quote_data['requested_spend']
+    if requested > 0 and not quote_data.get('min_purchase_reached', True):
+        raise DomainError(
+            code=ErrorCode.MIN_PURCHASE_NOT_REACHED,
+            message='Сумма покупки меньше той, с которой можно оплатить бонусами',
+            status_code=409,
+            details={'min_purchase_amount': quote_data.get('min_purchase_amount')},
+        )
     if requested > quote_data['purchase_total']:
         raise DomainError(
             code=ErrorCode.CASHBACK_LIMIT_EXCEEDED,
@@ -130,7 +138,11 @@ def _create_lot(*, user, organization, amount, program_snapshot, source_transact
         original_amount=amount,
         remaining_amount=amount,
         earned_at=now,
-        expires_at=now + timedelta(days=program_snapshot['expiry_days']),
+        # expiry_days = 0 — кешбэк не сгорает
+        expires_at=(
+            now + timedelta(days=program_snapshot['expiry_days'])
+            if program_snapshot.get('expiry_days') else NEVER_EXPIRES_AT
+        ),
         source_transaction=source_transaction,
         metadata={'program': program_snapshot},
     )
@@ -169,8 +181,13 @@ def _spend_lots_fifo(*, user, organization, amount, now=None):
 
 
 @transaction.atomic
-def earn_only(*, user, organization, purchase_total, admin, idempotency_key='', request=None):
-    """Покупка без списания: сразу начисляем, подтверждение не требуется."""
+def earn_only(*, user, organization, purchase_total, admin, idempotency_key='', request=None,
+              employee=None, service=None):
+    """Покупка без списания: сразу начисляем, подтверждение не требуется.
+
+    Операция создаётся и при нулевом начислении: она несёт оплату деньгами
+    (cash_paid) для выручки и результатов сотрудника.
+    """
     ensure_client(user)
     program = ensure_organization_operational(organization, expected_type=LoyaltyType.CASHBACK)
 
@@ -179,25 +196,25 @@ def earn_only(*, user, organization, purchase_total, admin, idempotency_key='', 
     snapshot = program.snapshot()
     earn = quote_data['earn_amount']
 
-    earn_tx = None
     lot = None
+    earn_tx = Transaction.objects.create(
+        user=user,
+        organization=organization,
+        actor_type=ActorType.ADMIN if admin else ActorType.SYSTEM,
+        actor_id=getattr(admin, 'id', None),
+        type=TransactionType.CASHBACK_EARN,
+        amount=earn,
+        status=TransactionStatus.COMPLETED,
+        idempotency_key=idempotency_key or '',
+        metadata={
+            'purchase_total': int(purchase_total),
+            'cash_paid': quote_data['cash_paid'],
+            'spend_amount': 0,
+            'program': snapshot,
+        },
+        **operation_fields(service=service, employee=employee, cash_paid=quote_data['cash_paid']),
+    )
     if earn > 0:
-        earn_tx = Transaction.objects.create(
-            user=user,
-            organization=organization,
-            actor_type=ActorType.ADMIN if admin else ActorType.SYSTEM,
-            actor_id=getattr(admin, 'id', None),
-            type=TransactionType.CASHBACK_EARN,
-            amount=earn,
-            status=TransactionStatus.COMPLETED,
-            idempotency_key=idempotency_key or '',
-            metadata={
-                'purchase_total': int(purchase_total),
-                'cash_paid': quote_data['cash_paid'],
-                'spend_amount': 0,
-                'program': snapshot,
-            },
-        )
         lot = _create_lot(
             user=user, organization=organization, amount=earn,
             program_snapshot=snapshot, source_transaction=earn_tx,
@@ -224,7 +241,7 @@ def earn_only(*, user, organization, purchase_total, admin, idempotency_key='', 
     if earn > 0:
         notify_user(
             user, NotificationEvent.CASHBACK_EARNED, organization=organization,
-            context={'amount_tiyin': earn},
+            context={'amount_tiyin': earn, 'transaction_id': str(earn_tx.id)},
         )
 
     return {
@@ -250,6 +267,11 @@ def apply_confirmed_redemption(*, redemption, state):
     spend = int(redemption.spend_amount or 0)
     earn = int(redemption.earn_amount or 0)
     transactions = []
+    # Оплата деньгами записывается в одну операцию покупки: в начисление,
+    # а если начисления нет — в списание.
+    employee = redemption.created_by_employee
+    service = redemption.service
+    cash_paid = int(redemption.cash_paid or 0)
 
     if spend > 0:
         consumed = _spend_lots_fifo(user=user, organization=organization, amount=spend, now=now)
@@ -268,6 +290,8 @@ def apply_confirmed_redemption(*, redemption, state):
                 'consumed_lots': consumed,
                 'program': snapshot,
             },
+            **operation_fields(service=service, employee=employee,
+                               cash_paid=None if earn > 0 else cash_paid),
         )
         state.cashback_available -= spend
         state.cashback_total_spent += spend
@@ -289,6 +313,7 @@ def apply_confirmed_redemption(*, redemption, state):
                 'spend_amount': spend,
                 'program': snapshot,
             },
+            **operation_fields(service=service, employee=employee, cash_paid=cash_paid),
         )
         lot = _create_lot(
             user=user, organization=organization, amount=earn,
@@ -380,7 +405,12 @@ def lots_expiring_soon(*, days, now=None):
 
 
 def next_expiry(user, organization, *, now=None):
-    lot = active_lots_qs(user, organization, now=now).order_by('expires_at').first()
+    """Ближайшее сгорание; бессрочный кешбэк (expiry_days = 0) не сгорает — None."""
+    lot = (
+        active_lots_qs(user, organization, now=now)
+        .filter(expires_at__lt=NEVER_EXPIRES_AT)
+        .order_by('expires_at').first()
+    )
     if lot is None:
         return None
     return {'amount': lot.remaining_amount, 'expires_at': lot.expires_at}

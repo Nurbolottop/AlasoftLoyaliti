@@ -5,7 +5,8 @@ from apps.users.models import Role, User
 
 
 def _get_client(**lookup):
-    user = User.objects.filter(role=Role.USER, **lookup).first()
+    # Покупателем может быть и администратор заведения (BACKEND_TZ 5.2)
+    user = User.objects.filter(role__in=[Role.USER, Role.ORGANIZATION_ADMIN], **lookup).first()
     if user is None:
         raise DomainError(code=ErrorCode.USER_NOT_FOUND, message='Клиент не найден', status_code=404)
     if not user.is_active:

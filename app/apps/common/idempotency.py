@@ -31,6 +31,8 @@ def get_idempotency_key(request, required=True):
 def actor_of(request):
     user = request.user
     role = getattr(user, 'role', None)
+    if getattr(user, '_acting_staff', None) is not None:
+        return ActorType.ADMIN, user.id
     if role == 'USER':
         return ActorType.USER, user.id
     if role == 'ORGANIZATION_ADMIN':

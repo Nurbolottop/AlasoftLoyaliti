@@ -251,4 +251,6 @@ def test_program_response_shape_is_stable(visit_admin_api):
     assert set(r.data['data'].keys()) == {
         'organization', 'loyalty_type', 'visit_program',
         'cashback_program', 'can_change_loyalty_type',
+        # текст на карте лояльности (BACKEND_TZ 7.12)
+        'card_title', 'card_description',
     }

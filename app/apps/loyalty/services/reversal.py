@@ -21,9 +21,9 @@ from apps.loyalty.models import (
     TransactionStatus,
     TransactionType,
 )
-from apps.loyalty.services.state import lock_state
+from apps.loyalty.services.state import lock_state, operation_fields
 from apps.notifications.models import NotificationEvent
-from apps.notifications.services import notify_user
+from apps.notifications.services import notify_staff, notify_user
 
 REVERSIBLE_TYPES = {
     TransactionType.VISIT_EARN,
@@ -102,6 +102,7 @@ def reverse_transaction(*, transaction_id, actor, reason, organization=None, for
             'forced': bool(force),
             **compensation_meta.get('metadata', {}),
         },
+        **operation_fields(employee=getattr(actor, '_acting_staff', None)),
     )
 
     original.status = TransactionStatus.REVERSED
@@ -122,12 +123,21 @@ def reverse_transaction(*, transaction_id, actor, reason, organization=None, for
         organization=original.organization,
         context={'transaction_id': str(original.id), 'reason': str(reason)[:120]},
     )
+    # Сотруднику, чью операцию отменили (если отменил не он сам)
+    if original.employee_id and original.employee.user_id != getattr(actor, 'id', None):
+        notify_staff(
+            original.employee.user, NotificationEvent.TRANSACTION_REVERSED,
+            organization=original.organization,
+            context={'transaction_id': str(original.id), 'reason': str(reason)[:120]},
+        )
 
     return {'original': original, 'reversal': reversal_tx, 'state': state}
 
 
 def _actor(actor):
     role = getattr(actor, 'role', None)
+    if getattr(actor, '_acting_staff', None) is not None:
+        return ActorType.ADMIN, actor.id
     if role == 'DIRECTOR':
         return ActorType.DIRECTOR, actor.id
     if role == 'ORGANIZATION_ADMIN':
@@ -268,3 +278,40 @@ def _reverse_gift_redeem(*, original, state, force=False):
     state.total_gifts_used = max(0, state.total_gifts_used - 1)
 
     return {'amount': None, 'metadata': {'restored_gift_id': str(gift.id)}}
+
+
+def can_reverse(original):
+    """Отменит ли сервер эту операцию без force (поле can_reverse, 3.4).
+
+    Повторяет проверки reverse_transaction, но без блокировок и записи.
+    """
+    if original.status != TransactionStatus.COMPLETED or original.type not in REVERSIBLE_TYPES:
+        return False
+
+    meta = original.metadata or {}
+    if original.type == TransactionType.VISIT_EARN:
+        gift_ids = meta.get('gifts_created') or []
+        if not gift_ids:
+            return True
+        return not Gift.objects.filter(
+            pk__in=gift_ids, status__in=[GiftStatus.USED, GiftStatus.PENDING_REDEMPTION],
+        ).exists()
+
+    if original.type == TransactionType.CASHBACK_EARN:
+        lot = None
+        if meta.get('lot_id'):
+            lot = CashbackLot.objects.filter(pk=meta['lot_id']).first()
+        if lot is None:
+            lot = CashbackLot.objects.filter(source_transaction=original).first()
+        if lot is None:
+            return False
+        return lot.status == CashbackLotStatus.ACTIVE and lot.remaining_amount == lot.original_amount
+
+    if original.type == TransactionType.CASHBACK_SPEND:
+        return bool(meta.get('consumed_lots'))
+
+    if original.type == TransactionType.GIFT_REDEEM:
+        gift_id = meta.get('gift_id')
+        return bool(gift_id) and Gift.objects.filter(pk=gift_id, status=GiftStatus.USED).exists()
+
+    return False

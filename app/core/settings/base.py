@@ -196,12 +196,15 @@ MEDIA_URL = '/media/'
 MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 
 # Загрузка логотипов: только изображения и не больше лимита (ТЗ backend §24).
-LOGO_MAX_SIZE_BYTES = int(os.getenv('LOGO_MAX_SIZE_BYTES', 2 * 1024 * 1024))
+LOGO_MAX_SIZE_BYTES = int(os.getenv('LOGO_MAX_SIZE_BYTES', 5 * 1024 * 1024))
 LOGO_ALLOWED_EXTENSIONS = ['png', 'jpg', 'jpeg', 'webp']
 
 # Аватар профиля: тот же подход — ресайз, WEBP и срезание EXIF на сервере.
 AVATAR_MAX_SIZE_BYTES = int(os.getenv('AVATAR_MAX_SIZE_BYTES', 5 * 1024 * 1024))
 AVATAR_ALLOWED_EXTENSIONS = ['png', 'jpg', 'jpeg', 'webp']
+
+# Обложка, фото товаров и сотрудников: JPEG, PNG, WebP до 5 МБ.
+IMAGE_MAX_SIZE_BYTES = int(os.getenv('IMAGE_MAX_SIZE_BYTES', 5 * 1024 * 1024))
 
 DJANGO_RESIZED_DEFAULT = {
     'size': [512, 512],
@@ -320,6 +323,26 @@ PIN_HARD_LOCK_ATTEMPTS = int(os.getenv('PIN_HARD_LOCK_ATTEMPTS', 10))
 REDEMPTION_TTL_SECONDS = int(os.getenv('REDEMPTION_TTL_SECONDS', 300))
 IDEMPOTENCY_RETENTION_DAYS = int(os.getenv('IDEMPOTENCY_RETENTION_DAYS', 7))
 CASHBACK_EXPIRY_WARNING_DAYS = int(os.getenv('CASHBACK_EXPIRY_WARNING_DAYS', 7))
+# За сколько дней до сгорания предупреждать (CASHBACK_EXPIRING, раздел 9.4)
+CASHBACK_EXPIRY_WARNING_SCHEDULE = [
+    int(x) for x in os.getenv('CASHBACK_EXPIRY_WARNING_SCHEDULE', '7,1').split(',') if x.strip()
+]
+
+# «Постоянный клиент»: столько оплаченных визитов за столько дней (3.9)
+REGULAR_CUSTOMER_MIN_VISITS = int(os.getenv('REGULAR_CUSTOMER_MIN_VISITS', 3))
+REGULAR_CUSTOMER_WINDOW_DAYS = int(os.getenv('REGULAR_CUSTOMER_WINDOW_DAYS', 90))
+
+# Лента уведомлений хранится 90 дней (9.5)
+NOTIFICATION_RETENTION_DAYS = int(os.getenv('NOTIFICATION_RETENTION_DAYS', 90))
+
+# Приглашение друзей (6.9)
+REFERRAL_INVITE_BASE_URL = os.getenv('REFERRAL_INVITE_BASE_URL', 'https://topto.kg/i/')
+
+# Контакты поддержки для экрана «Контакты» (6.8)
+SUPPORT_PHONE = os.getenv('SUPPORT_PHONE', '')
+SUPPORT_WHATSAPP = os.getenv('SUPPORT_WHATSAPP', '')
+SUPPORT_INSTAGRAM_URL = os.getenv('SUPPORT_INSTAGRAM_URL', '')
+SUPPORT_EMAIL = os.getenv('SUPPORT_EMAIL', '')
 
 PHONE_DEFAULT_REGION = os.getenv('PHONE_DEFAULT_REGION', 'KG')
 

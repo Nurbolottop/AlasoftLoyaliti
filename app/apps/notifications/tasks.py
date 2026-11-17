@@ -3,7 +3,7 @@ import logging
 from celery import shared_task
 from django.utils import timezone
 
-from apps.notifications.models import Notification, NotificationStatus
+from apps.notifications.models import Notification, NotificationEvent, NotificationStatus
 from apps.notifications.providers.push import PushSendError, get_push_provider
 from apps.notifications.providers.sms import SmsSendError, get_sms_provider
 from apps.notifications.templates_registry import render_push, render_sms
@@ -11,17 +11,50 @@ from apps.notifications.templates_registry import render_push, render_sms
 logger = logging.getLogger('alasoft.notifications')
 
 
+# Служебные ключи контекста, которые не нужны приложению в data
+_INTERNAL_KEYS = {'organization', 'subject', 'amount_tiyin', 'revenue_tiyin', 'progress', 'target', 'days'}
+
+
+def push_data(notification):
+    """data-часть сообщения (9.3): все значения — строки."""
+    payload = notification.payload or {}
+    data = {
+        key: str(value) for key, value in payload.items()
+        if key not in _INTERNAL_KEYS and value is not None and not isinstance(value, (dict, list))
+    }
+    if 'amount_tiyin' in payload:
+        data['amount'] = str(payload['amount_tiyin'])
+    if 'revenue_tiyin' in payload:
+        data['revenue'] = str(payload['revenue_tiyin'])
+    data['event'] = notification.event
+    data['notification_id'] = str(notification.id)
+    return data
+
+
 @shared_task(name='notifications.send_push', bind=True, max_retries=3, default_retry_delay=30)
 def send_push_notification(self, notification_id):
-    """SendPush: доставка на все активные устройства пользователя."""
+    """SendPush: доставка на активные устройства нужного приложения (CLIENT/BUSINESS)."""
     notification = Notification.objects.filter(pk=notification_id).select_related('user').first()
     if notification is None or notification.status != NotificationStatus.QUEUED:
         return 'skipped'
 
+    from apps.notifications.services import unread_count
+
     user = notification.user
-    devices = list(user.devices.filter(is_active=True).exclude(fcm_token='')) if user else []
-    title, body = render_push(notification.event, notification.language, notification.payload)
-    notification.title, notification.body = title, body
+    devices = list(
+        user.devices.filter(is_active=True, app=notification.app).exclude(fcm_token='')
+    ) if user else []
+    title, body = notification.title, notification.body
+    if not notification.is_silent and not (title or body):
+        title, body = render_push(notification.event, notification.language, notification.payload,
+                                  notification.app)
+        notification.title, notification.body = title, body
+    options = {
+        'silent': notification.is_silent,
+        'high_priority': notification.event == NotificationEvent.REDEMPTION_REQUESTED,
+        'channel': 'redemptions' if notification.event == NotificationEvent.REDEMPTION_REQUESTED else 'default',
+        'badge': unread_count(user, notification.app) if user else 0,
+    }
 
     if not devices:
         notification.status = NotificationStatus.SKIPPED
@@ -34,8 +67,7 @@ def send_push_notification(self, notification_id):
     for device in devices:
         try:
             message_id = provider.send(
-                device.fcm_token, title, body,
-                {'event': notification.event, **notification.payload},
+                device.fcm_token, title, body, push_data(notification), **options,
             )
             notification.provider_message_id = message_id or ''
             sent += 1
@@ -89,3 +121,15 @@ def send_sms_notification(self, notification_id, phone, event, language, context
             'status', 'provider', 'provider_message_id', 'sent_at', 'updated_at'
         ])
     return 'sent'
+
+
+@shared_task(name='notifications.cleanup_feed')
+def cleanup_notification_feed():
+    """Лента хранится 90 дней (BACKEND_TZ 9.5)."""
+    from datetime import timedelta
+
+    from django.conf import settings
+
+    cutoff = timezone.now() - timedelta(days=settings.NOTIFICATION_RETENTION_DAYS)
+    deleted, _ = Notification.objects.filter(created_at__lt=cutoff).delete()
+    return {'deleted': deleted}

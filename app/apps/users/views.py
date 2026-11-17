@@ -97,15 +97,16 @@ class RegisterCompleteView(APIView):
         user, tokens = services.complete_registration(
             phone=data['phone'],
             verification_token=data['verification_token'],
-            pin=data['pin'],
+            pin=data.get('pin') or None,
             first_name=data.get('first_name', ''),
             last_name=data.get('last_name', ''),
             language=data.get('language', 'ru'),
             device=data.get('device'),
             request=request,
+            referral_code=data.get('referral_code', ''),
         )
         return Response(
-            {'user': MeSerializer(user).data, 'tokens': tokens},
+            {'user': MeSerializer(user, context={'request': request}).data, 'tokens': tokens},
             status=status.HTTP_201_CREATED,
         )
 
@@ -123,7 +124,7 @@ class PinLoginView(APIView):
             phone=data['phone'], pin=data['pin'],
             device=data.get('device'), request=request,
         )
-        return Response({'user': MeSerializer(user).data, 'tokens': tokens})
+        return Response({'user': MeSerializer(user, context={'request': request}).data, 'tokens': tokens})
 
 
 @extend_schema(tags=['auth'], responses=OpenApiTypes.OBJECT)
@@ -142,7 +143,7 @@ class OtpLoginView(APIView):
             device=data.get('device'),
             request=request,
         )
-        return Response({'user': MeSerializer(user).data, 'tokens': tokens})
+        return Response({'user': MeSerializer(user, context={'request': request}).data, 'tokens': tokens})
 
 
 @extend_schema(tags=['auth'], responses=OpenApiTypes.OBJECT)
@@ -160,7 +161,7 @@ class PinResetView(APIView):
             device=data.get('device'),
             request=request,
         )
-        return Response({'user': MeSerializer(user).data, 'tokens': tokens})
+        return Response({'user': MeSerializer(user, context={'request': request}).data, 'tokens': tokens})
 
 
 @extend_schema(tags=['auth'], responses=OpenApiTypes.OBJECT)
@@ -175,7 +176,7 @@ class DirectorLoginView(APIView):
         user, tokens = services.director_login(
             phone=data['phone'], password=data['password'], request=request
         )
-        return Response({'user': MeSerializer(user).data, 'tokens': tokens})
+        return Response({'user': MeSerializer(user, context={'request': request}).data, 'tokens': tokens})
 
 
 @extend_schema(tags=['auth'], responses=OpenApiTypes.OBJECT)
@@ -246,7 +247,7 @@ class MeDevicesView(APIView):
     def post(self, request):
         serializer = UserDeviceSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        device = services.upsert_device(request.user, serializer.validated_data)
+        device = services.upsert_device(request.user, serializer.validated_data, request)
         return Response(UserDeviceSerializer(device).data, status=status.HTTP_201_CREATED)
 
 

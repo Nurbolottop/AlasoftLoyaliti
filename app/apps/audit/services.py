@@ -10,6 +10,9 @@ logger = logging.getLogger('alasoft.audit')
 
 def actor_from(user):
     role = getattr(user, 'role', None)
+    if getattr(user, '_acting_staff', None) is not None:
+        # Действует как сотрудник заведения, даже если в профиле роль USER
+        return ActorType.ADMIN, user.id, user.phone
     if role == 'USER':
         return ActorType.USER, user.id, user.phone
     if role == 'ORGANIZATION_ADMIN':

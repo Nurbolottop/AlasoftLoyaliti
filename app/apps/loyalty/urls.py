@@ -1,6 +1,8 @@
 from django.urls import path
 
 from apps.loyalty import views_admin, views_user
+from apps.notifications import views as notification_views
+from apps.organizations import views_admin as org_admin_views
 
 user_urlpatterns = [
     path('home', views_user.HomeView.as_view(), name='user-home'),
@@ -11,9 +13,35 @@ user_urlpatterns = [
     path('me/redemptions/pending', views_user.MyPendingRedemptionsView.as_view(), name='me-redemptions-pending'),
     path('me/redemptions/<uuid:pk>/confirm', views_user.ConfirmRedemptionView.as_view(), name='me-redemption-confirm'),
     path('me/redemptions/<uuid:pk>/reject', views_user.RejectRedemptionView.as_view(), name='me-redemption-reject'),
+    path('me/referral', views_user.MyReferralView.as_view(), name='me-referral'),
+    path('me/notifications', notification_views.NotificationListView.as_view(), name='me-notifications'),
+    path('me/notifications/read-all', notification_views.NotificationReadAllView.as_view(),
+         name='me-notifications-read-all'),
+    path('me/notifications/<uuid:pk>/read', notification_views.NotificationReadView.as_view(),
+         name='me-notification-read'),
+    path('me/notification-settings', notification_views.NotificationSettingsView.as_view(),
+         name='me-notification-settings'),
+    path('support/contacts', views_user.SupportContactsView.as_view(), name='support-contacts'),
 ]
 
 admin_urlpatterns = [
+    path('me', views_admin.AdminMeView.as_view(), name='admin-me'),
+    path('overview', views_admin.AdminOverviewView.as_view(), name='admin-overview'),
+    path('revenue', views_admin.AdminRevenueView.as_view(), name='admin-revenue'),
+    path('payments', views_admin.AdminPaymentsView.as_view(), name='admin-payments'),
+    path('customers/new', views_admin.AdminNewCustomersView.as_view(), name='admin-customers-new'),
+    path('customers/<uuid:pk>', views_admin.CustomerNoteView.as_view(), name='admin-customer'),
+    path('redemptions/<uuid:pk>', views_admin.AdminRedemptionDetailView.as_view(), name='admin-redemption'),
+    path('employees', org_admin_views.EmployeeListView.as_view(), name='admin-employees'),
+    path('employees/<uuid:pk>', org_admin_views.EmployeeDetailView.as_view(), name='admin-employee'),
+    path('employees/<uuid:pk>/stats', org_admin_views.EmployeeStatsView.as_view(), name='admin-employee-stats'),
+    path('catalog/sections', org_admin_views.CatalogSectionListView.as_view(), name='admin-catalog-sections'),
+    path('catalog/sections/<uuid:pk>', org_admin_views.CatalogSectionDetailView.as_view(),
+         name='admin-catalog-section'),
+    path('catalog/sections/<uuid:pk>/items', org_admin_views.CatalogSectionItemsView.as_view(),
+         name='admin-catalog-section-items'),
+    path('catalog/items/<uuid:pk>', org_admin_views.CatalogItemDetailView.as_view(), name='admin-catalog-item'),
+    path('catalog/services', org_admin_views.CatalogServicesView.as_view(), name='admin-catalog-services'),
     path('dashboard', views_admin.AdminDashboardView.as_view(), name='admin-dashboard'),
     path('program', views_admin.AdminProgramView.as_view(), name='admin-program'),
     path('organization', views_admin.AdminOrganizationView.as_view(), name='admin-organization'),

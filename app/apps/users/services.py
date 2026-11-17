@@ -13,9 +13,10 @@ from apps.audit.models import AuditAction
 from apps.audit.services import log_action
 from apps.common.net import client_ip
 from apps.common.errors import DomainError, ErrorCode, PermissionDeniedError
+from apps.common.request_context import APP_BUSINESS, APP_CLIENT, request_app
 from apps.notifications.models import NotificationEvent
 from apps.notifications.services import notify_user, send_sms
-from apps.users.models import OtpChallenge, OtpPurpose, OtpStatus, Role, User, UserDevice
+from apps.users.models import AppKind, OtpChallenge, OtpPurpose, OtpStatus, Role, User, UserDevice
 
 logger = logging.getLogger('alasoft.auth')
 
@@ -150,7 +151,7 @@ def verify_otp(*, challenge_id, code, phone=None, request=None):
             raise DomainError(code=ErrorCode.OTP_INVALID, message='Неверный код')
         if challenge.status == OtpStatus.VERIFIED and challenge.verification_token:
             if challenge.verification_expires_at and challenge.verification_expires_at > timezone.now():
-                return _verify_result(challenge)
+                return _verify_result(challenge, request)
         if challenge.status != OtpStatus.PENDING:
             raise DomainError(code=ErrorCode.OTP_INVALID, message='Код уже использован или недействителен')
         if challenge.is_expired:
@@ -167,10 +168,12 @@ def verify_otp(*, challenge_id, code, phone=None, request=None):
             'status', 'verified_at', 'verification_token', 'verification_expires_at', 'updated_at'
         ])
 
-    return _verify_result(challenge)
+    return _verify_result(challenge, request)
 
 
-def _verify_result(challenge):
+def _verify_result(challenge, request=None):
+    from apps.common.permissions import effective_role
+
     user = User.objects.filter(phone=challenge.phone).first()
     exists = bool(user and user.is_registration_complete)
     result = {
@@ -180,7 +183,7 @@ def _verify_result(challenge):
         'purpose': challenge.purpose,
         'user_exists': exists,
         'has_pin': bool(user and user.has_pin),
-        'role': user.role if exists else None,
+        'role': effective_role(user, request) if exists else None,
     }
     if exists:
         # Имя отдаём только после успешной проверки кода: на этом шаге
@@ -217,10 +220,31 @@ def consume_verification(*, token, phone, purposes):
         return challenge
 
 
+def ensure_business_login_allowed(user, request):
+    """Отключённый или удалённый сотрудник не входит в TOPTO Business (5.3).
+
+    Тот же человек остаётся покупателем: вход в TOPTO не затрагивается.
+    """
+    if request_app(request) != APP_BUSINESS or user.role == Role.DIRECTOR:
+        return
+    if user.active_admin_membership is not None:
+        return
+    if user.admin_memberships.exists():
+        raise DomainError(code=ErrorCode.USER_BLOCKED, message='Доступ сотрудника отключён', status_code=403)
+
+
 @transaction.atomic
-def complete_registration(*, phone, verification_token, pin, first_name='', last_name='',
-                          language='ru', device=None, request=None):
-    """Создаёт профиль, идентификаторы и PIN после подтверждения SMS."""
+def complete_registration(*, phone, verification_token, pin=None, first_name='', last_name='',
+                          language='ru', device=None, request=None, referral_code=''):
+    """Создаёт профиль и идентификаторы после подтверждения SMS.
+
+    PIN необязателен: он хранится на устройстве (BACKEND_TZ 4.1). В TOPTO
+    Business регистрации нет — аккаунты заведению заводит администратор.
+    """
+    if request_app(request) == APP_BUSINESS:
+        raise PermissionDeniedError(
+            message='Номер не подключён к организации', details={'permission': 'role'},
+        )
     consume_verification(
         token=verification_token, phone=phone,
         purposes=(OtpPurpose.REGISTER, OtpPurpose.LOGIN),
@@ -241,12 +265,25 @@ def complete_registration(*, phone, verification_token, pin, first_name='', last
     user.first_name = first_name or user.first_name
     user.last_name = last_name or user.last_name
     user.language = language or user.language
-    user.set_pin(pin)
+    if pin:
+        user.set_pin(pin)
     user.is_registration_complete = True
+
+    # Неверный код приглашения регистрацию не ломает — просто игнорируется
+    inviter = None
+    code = (referral_code or '').strip().upper()
+    if code and not user.referred_by_id:
+        inviter = User.objects.filter(referral_code=code, is_active=True).exclude(pk=user.pk).first()
+        user.referred_by = inviter
     user.save()
     user.ensure_identity()
 
-    log_action(AuditAction.PIN_SET, actor=user, request=request, entity_type='User', entity_id=user.id)
+    if pin:
+        log_action(AuditAction.PIN_SET, actor=user, request=request, entity_type='User', entity_id=user.id)
+    if inviter is not None:
+        notify_user(inviter, NotificationEvent.FRIEND_JOINED,
+                    context={'friend_name': user.first_name or user.full_name or 'Друг',
+                             'friend_id': str(user.id)})
     tokens = issue_tokens(user, device=device, request=request)
     return user, tokens
 
@@ -284,6 +321,7 @@ def otp_login(*, phone, verification_token, device=None, request=None):
         raise DomainError(code=ErrorCode.USER_NOT_FOUND, message='Пользователь не найден', status_code=404)
     if not user.is_active:
         raise DomainError(code=ErrorCode.USER_BLOCKED, message='Аккаунт заблокирован', status_code=403)
+    ensure_business_login_allowed(user, request)
 
     # Подтверждение по SMS снимает блокировку от перебора PIN.
     user.reset_pin_attempts()
@@ -300,6 +338,7 @@ def pin_login(*, phone, pin, device=None, request=None):
         raise DomainError(code=ErrorCode.INVALID_CREDENTIALS, message='Неверный телефон или PIN', status_code=401)
     if not user.is_active:
         raise DomainError(code=ErrorCode.USER_BLOCKED, message='Аккаунт заблокирован', status_code=403)
+    ensure_business_login_allowed(user, request)
     if user.is_pin_locked:
         raise DomainError(
             code=ErrorCode.PIN_LOCKED,
@@ -337,13 +376,27 @@ def director_login(*, phone, password, request=None):
     return user, issue_tokens(user, request=request)
 
 
-def upsert_device(user, device_data):
-    """Регистрирует устройство и его FCM-токен."""
+def device_app(user, device_data=None, request=None):
+    """Приложение устройства: поле app, иначе X-App, иначе по роли (старые версии)."""
+    value = (device_data or {}).get('app')
+    if value in (AppKind.CLIENT, AppKind.BUSINESS):
+        return value
+    app = request_app(request)
+    if app == APP_BUSINESS:
+        return AppKind.BUSINESS
+    if app == APP_CLIENT:
+        return AppKind.CLIENT
+    return AppKind.BUSINESS if user.role == Role.ORGANIZATION_ADMIN else AppKind.CLIENT
+
+
+def upsert_device(user, device_data, request=None):
+    """Регистрирует устройство и его FCM-токен; ключ — device_id + app."""
     if not device_data or not device_data.get('device_id'):
         return None
     device, _ = UserDevice.objects.update_or_create(
         user=user,
         device_id=device_data['device_id'],
+        app=device_app(user, device_data, request),
         defaults={
             'platform': device_data.get('platform', 'android'),
             'device_name': device_data.get('device_name', ''),
@@ -367,7 +420,7 @@ def issue_tokens(user, *, device=None, request=None):
         membership = user.active_admin_membership
         refresh['organization_id'] = str(membership.organization_id) if membership else None
 
-    device_obj = upsert_device(user, device) if isinstance(device, dict) else device
+    device_obj = upsert_device(user, device, request) if isinstance(device, dict) else device
     if device_obj is not None:
         refresh['device_id'] = device_obj.device_id
         device_obj.refresh_jti = refresh['jti']
@@ -398,9 +451,12 @@ def logout(*, refresh_token, user, device_id='', request=None):
         raise DomainError(code=ErrorCode.TOKEN_INVALID, message='Некорректный refresh-токен', status_code=401)
 
     if device_id:
-        UserDevice.objects.filter(user=user, device_id=device_id).update(
-            is_active=False, fcm_token='', refresh_jti=''
-        )
+        # Выход из одного приложения не отвязывает второе на том же телефоне
+        devices = UserDevice.objects.filter(user=user, device_id=device_id)
+        app = request_app(request)
+        if app:
+            devices = devices.filter(app=AppKind.BUSINESS if app == APP_BUSINESS else AppKind.CLIENT)
+        devices.update(is_active=False, fcm_token='', refresh_jti='')
     log_action(AuditAction.LOGOUT, actor=user, request=request, entity_type='User', entity_id=user.id)
     return True
 
@@ -560,7 +616,7 @@ def delete_avatar(*, user, request=None):
 
 def request_account_deletion(*, user, request=None):
     """Код уходит на ТЕКУЩИЙ номер. До подтверждения аккаунт не трогаем."""
-    if user.role != Role.USER:
+    if user.role != Role.USER or user.active_admin_membership is not None:
         raise PermissionDeniedError(message='Удаление доступно только клиентам')
 
     now = timezone.now()
@@ -683,7 +739,7 @@ def anonymize_user(*, user, request=None, actor=None, notify=True):
 @transaction.atomic
 def confirm_account_deletion(*, user, challenge_id, code, request=None):
     """Проверяет код и обезличивает аккаунт. Операция необратима."""
-    if user.role != Role.USER:
+    if user.role != Role.USER or user.active_admin_membership is not None:
         raise PermissionDeniedError(message='Удаление доступно только клиентам')
 
     challenge = (

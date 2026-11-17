@@ -2,6 +2,8 @@ from django.contrib import admin
 
 from apps.organizations.models import (
     CashbackProgram,
+    CatalogItem,
+    CatalogSection,
     Category,
     Organization,
     OrganizationAdmin as OrganizationAdminModel,
@@ -36,6 +38,27 @@ class CategoryAdmin(admin.ModelAdmin):
 
 @admin.register(OrganizationAdminModel)
 class OrganizationAdminAdmin(admin.ModelAdmin):
-    list_display = ['organization', 'user', 'is_active', 'created_at']
-    list_filter = ['is_active']
-    search_fields = ['organization__name', 'user__phone']
+    list_display = ['organization', 'user', 'full_name', 'position', 'is_active', 'deleted_at', 'created_at']
+    list_filter = ['position', 'is_active']
+    search_fields = ['organization__name', 'user__phone', 'full_name']
+
+
+class CatalogItemInline(admin.TabularInline):
+    model = CatalogItem
+    extra = 0
+    fields = ['name', 'price', 'short_description', 'sort_order']
+
+
+@admin.register(CatalogSection)
+class CatalogSectionAdmin(admin.ModelAdmin):
+    list_display = ['name', 'organization', 'sort_order']
+    search_fields = ['name', 'organization__name']
+    inlines = [CatalogItemInline]
+
+    def save_formset(self, request, form, formset, change):
+        for item in formset.save(commit=False):
+            item.organization = form.instance.organization
+            item.save()
+        formset.save_m2m()
+        for item in formset.deleted_objects:
+            item.delete()

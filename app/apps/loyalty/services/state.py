@@ -34,10 +34,14 @@ def ensure_organization_operational(organization, expected_type=None):
     return program
 
 
+CUSTOMER_ROLES = ('USER', 'ORGANIZATION_ADMIN')
+
+
 def ensure_client(user):
+    """Покупатель: любой человек, кроме директора платформы (BACKEND_TZ 5.2)."""
     if user is None:
         raise DomainError(code=ErrorCode.USER_NOT_FOUND, message='Клиент не найден', status_code=404)
-    if user.role != 'USER':
+    if user.role not in CUSTOMER_ROLES:
         raise DomainError(code=ErrorCode.USER_NOT_FOUND, message='Клиент не найден', status_code=404)
     if not user.is_active:
         raise DomainError(code=ErrorCode.USER_BLOCKED, message='Клиент заблокирован', status_code=403)
@@ -47,6 +51,34 @@ def ensure_client(user):
 def get_state(user, organization):
     state, _ = UserOrganizationState.objects.get_or_create(user=user, organization=organization)
     return state
+
+
+def peek_state(user, organization):
+    """Состояние для показа, без записи в БД.
+
+    Сканирование QR не делает покупателя клиентом заведения: если записи
+    нет, отдаём нулевое состояние, не сохраняя его (BACKEND_TZ 7.6).
+    """
+    state = UserOrganizationState.objects.filter(user=user, organization=organization).first()
+    return state or UserOrganizationState(user=user, organization=organization)
+
+
+def is_member(user, organization):
+    if user is None or not getattr(user, 'is_authenticated', False):
+        return False
+    return UserOrganizationState.objects.filter(
+        user=user, organization=organization, joined_at__isnull=False,
+    ).exists()
+
+
+def operation_fields(*, service=None, employee=None, cash_paid=None):
+    """Поля операции: услуга (копия названия и цены), сотрудник, оплата деньгами."""
+    fields = {'cash_paid': cash_paid}
+    if service is not None:
+        fields.update(service=service, service_name=service.name, service_price=service.price)
+    if employee is not None:
+        fields.update(employee=employee, employee_name=employee.display_name)
+    return fields
 
 
 def lock_state(user, organization):

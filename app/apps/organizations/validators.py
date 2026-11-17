@@ -16,3 +16,11 @@ def validate_avatar_size(value):
     if size and size > settings.AVATAR_MAX_SIZE_BYTES:
         limit_mb = settings.AVATAR_MAX_SIZE_BYTES // (1024 * 1024)
         raise ValidationError(f'Файл больше {limit_mb} МБ')
+
+
+def validate_image_size(value):
+    """Картинки витрины и сотрудников: JPEG, PNG, WebP до 5 МБ (раздел 2)."""
+    size = getattr(value, 'size', None)
+    if size and size > settings.IMAGE_MAX_SIZE_BYTES:
+        limit_mb = settings.IMAGE_MAX_SIZE_BYTES // (1024 * 1024)
+        raise ValidationError(f'Файл больше {limit_mb} МБ')

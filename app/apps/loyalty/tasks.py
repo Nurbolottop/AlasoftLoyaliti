@@ -28,13 +28,51 @@ def cleanup_expired_redemptions():
 
 @shared_task(name='loyalty.notify_expiring_cashback')
 def notify_expiring_cashback():
-    """Предупреждение о скором сгорании (ТЗ общее §15)."""
-    days = settings.CASHBACK_EXPIRY_WARNING_DAYS
+    """CASHBACK_EXPIRING за 7 дней и за 1 день до сгорания (BACKEND_TZ 8, 9.4).
+
+    Запускается раз в день: берём партии, которые сгорят ровно через N
+    календарных дней, — так одно предупреждение не повторяется каждый день.
+    """
+    from datetime import datetime, time, timedelta
+
+    from django.utils import timezone
+
+    from apps.loyalty.models import CashbackLot, CashbackLotStatus
+
+    tz = timezone.get_current_timezone()
+    today = timezone.localdate()
     sent = 0
-    for lot in cashback_service.lots_expiring_soon(days=days):
-        notify_user(
-            lot.user, NotificationEvent.CASHBACK_EXPIRING, organization=lot.organization,
-            context={'amount_tiyin': lot.remaining_amount, 'days': days},
-        )
-        sent += 1
+    for days in settings.CASHBACK_EXPIRY_WARNING_SCHEDULE:
+        start = timezone.make_aware(datetime.combine(today + timedelta(days=days), time.min), tz)
+        lots = CashbackLot.objects.filter(
+            status=CashbackLotStatus.ACTIVE, remaining_amount__gt=0,
+            expires_at__gte=start, expires_at__lt=start + timedelta(days=1),
+        ).select_related('user', 'organization')
+        for lot in lots:
+            notify_user(
+                lot.user, NotificationEvent.CASHBACK_EXPIRING, organization=lot.organization,
+                context={'amount_tiyin': lot.remaining_amount, 'days': days,
+                         'expires_at': lot.expires_at.isoformat()},
+            )
+            sent += 1
     return {'notified': sent}
+
+
+@shared_task(name='loyalty.daily_summary')
+def daily_summary():
+    """Итоги дня администраторам заведений (DAILY_SUMMARY, 9.4)."""
+    from apps.loyalty.services import business
+    from apps.notifications.services import notify_organization_admins
+    from apps.organizations.models import Organization, OrganizationStatus
+
+    sent = 0
+    for organization in Organization.objects.filter(status=OrganizationStatus.ACTIVE):
+        data = business.overview(organization, 1)
+        if not (data['revenue'] or data['visitors'] or data['new_customers']):
+            continue
+        notify_organization_admins(organization, NotificationEvent.DAILY_SUMMARY, context={
+            'revenue_tiyin': data['revenue'], 'visitors': data['visitors'],
+            'new_customers': data['new_customers'],
+        })
+        sent += 1
+    return {'organizations': sent}

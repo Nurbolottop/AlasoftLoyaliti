@@ -2,7 +2,7 @@ from django.conf import settings
 from rest_framework import serializers
 
 from apps.common.phone import normalize_phone
-from apps.users.models import Language, OtpPurpose, User, UserDevice
+from apps.users.models import AppKind, Gender, Language, OtpPurpose, User, UserDevice
 
 
 def avatar_url(user, request=None) -> str | None:
@@ -36,6 +36,8 @@ class DeviceSerializer(serializers.Serializer):
     app_version = serializers.CharField(max_length=32, required=False, allow_blank=True, default='')
     fcm_token = serializers.CharField(max_length=512, required=False, allow_blank=True, default='')
     language = serializers.ChoiceField(choices=Language.choices, required=False, default=Language.RU)
+    # CLIENT / BUSINESS. Старые версии не шлют — берётся из X-App или роли.
+    app = serializers.ChoiceField(choices=AppKind.choices, required=False)
 
 
 class OtpRequestSerializer(serializers.Serializer):
@@ -53,7 +55,9 @@ class OtpVerifySerializer(serializers.Serializer):
 class RegisterCompleteSerializer(serializers.Serializer):
     phone = PhoneField()
     verification_token = serializers.CharField(max_length=64, write_only=True)
-    pin = PinField()
+    # PIN хранится на устройстве — серверу он необязателен (BACKEND_TZ 4.1)
+    pin = PinField(required=False, allow_blank=True)
+    referral_code = serializers.CharField(max_length=16, required=False, allow_blank=True, default='')
     first_name = serializers.CharField(max_length=100, required=False, allow_blank=True, default='')
     last_name = serializers.CharField(max_length=100, required=False, allow_blank=True, default='')
     language = serializers.ChoiceField(choices=Language.choices, required=False, default=Language.RU)
@@ -100,15 +104,21 @@ class MeSerializer(serializers.ModelSerializer):
     has_pin = serializers.BooleanField(read_only=True)
     qr_payload = serializers.SerializerMethodField()
     avatar_url = serializers.SerializerMethodField()
+    role = serializers.SerializerMethodField()
 
     class Meta:
         model = User
         fields = [
-            'id', 'phone', 'first_name', 'last_name', 'full_name', 'birth_date',
+            'id', 'phone', 'first_name', 'last_name', 'full_name', 'birth_date', 'gender',
             'avatar_url', 'role', 'language', 'public_code', 'qr_payload', 'has_pin',
             'is_registration_complete', 'date_joined',
         ]
-        read_only_fields = ['id', 'phone', 'role', 'public_code', 'is_registration_complete', 'date_joined']
+        read_only_fields = ['id', 'phone', 'public_code', 'is_registration_complete', 'date_joined']
+
+    def get_role(self, obj) -> str:
+        """Роль зависит от X-App: в TOPTO — USER, в Business — по записи сотрудника (5.2)."""
+        from apps.common.permissions import effective_role
+        return effective_role(obj, self.context.get('request'))
 
     def get_qr_payload(self, obj) -> str | None:
         """QR несёт только opaque-токен: ни ФИО, ни телефона, ни баланса."""
@@ -119,9 +129,14 @@ class MeSerializer(serializers.ModelSerializer):
 
 
 class MeUpdateSerializer(serializers.ModelSerializer):
+    gender = serializers.ChoiceField(choices=Gender.choices, required=False, allow_null=True, allow_blank=True)
+
     class Meta:
         model = User
-        fields = ['first_name', 'last_name', 'birth_date', 'language']
+        fields = ['first_name', 'last_name', 'birth_date', 'language', 'gender']
+
+    def validate_gender(self, value):
+        return value or None
 
 
 class UserDeviceSerializer(serializers.ModelSerializer):
@@ -129,10 +144,15 @@ class UserDeviceSerializer(serializers.ModelSerializer):
         model = UserDevice
         fields = [
             'id', 'device_id', 'platform', 'device_name', 'app_version',
-            'fcm_token', 'language', 'is_active', 'last_seen_at', 'created_at',
+            'fcm_token', 'language', 'app', 'is_active', 'last_seen_at', 'created_at',
         ]
         read_only_fields = ['id', 'is_active', 'last_seen_at', 'created_at']
-        extra_kwargs = {'fcm_token': {'write_only': True}}
+        extra_kwargs = {
+            'fcm_token': {'write_only': True, 'required': False},
+            'app': {'required': False},
+        }
+        # Уникальность (user, device_id, app) обеспечивает upsert, а не валидатор
+        validators = []
 
 
 class UserShortSerializer(serializers.ModelSerializer):

@@ -34,6 +34,7 @@ from apps.loyalty.serializers import DirectorReverseSerializer
 from apps.loyalty.services import reversal as reversal_service
 from apps.loyalty.services import statistics as statistics_service
 from apps.organizations.models import (
+    EmployeePosition,
     CashbackProgram,
     Category,
     LoyaltyType,
@@ -207,6 +208,11 @@ class OrganizationBlockView(DirectorBaseView):
             entity_type='Organization', entity_id=organization.id, organization=organization,
             reason=organization.blocked_reason, after={'status': organization.status},
         )
+        # Всем сотрудникам заведения — на устройства Business (9.4)
+        from apps.notifications.models import NotificationEvent
+        from apps.notifications.services import notify_organization_staff
+        notify_organization_staff(organization, NotificationEvent.ORGANIZATION_BLOCKED,
+                                  context={'reason': organization.blocked_reason})
         return Response({'id': str(organization.id), 'status': organization.status})
 
 
@@ -257,17 +263,22 @@ class OrganizationAdminView(DirectorBaseView):
                 message='Этот номер принадлежит директору',
             )
 
-        active_membership = organization.admins.filter(is_active=True).first()
+        live_admins = organization.admins.filter(
+            is_active=True, deleted_at__isnull=True, position=EmployeePosition.ADMIN,
+        )
+        active_membership = live_admins.order_by('created_at').first()
         if active_membership and not data.get('replace_existing'):
             raise ConflictError(
                 code=ErrorCode.ADMIN_ALREADY_EXISTS,
                 message='У организации уже есть активный администратор',
                 details={'admin_id': str(active_membership.user_id)},
             )
+        now = timezone.now()
         if active_membership:
-            active_membership.is_active = False
-            active_membership.deactivated_at = timezone.now()
-            active_membership.save(update_fields=['is_active', 'deactivated_at', 'updated_at'])
+            # Замена администратора: прежний становится удалённым сотрудником
+            OrganizationAdmin.objects.filter(pk=active_membership.pk).update(
+                is_active=False, deactivated_at=now, deleted_at=now,
+            )
 
         if user is None:
             user = User(phone=phone, role=Role.ORGANIZATION_ADMIN)
@@ -283,11 +294,13 @@ class OrganizationAdminView(DirectorBaseView):
         user.set_pin(temp_pin)
         user.save()
 
-        OrganizationAdmin.objects.filter(user=user, is_active=True).update(
-            is_active=False, deactivated_at=timezone.now()
+        # Один человек — сотрудник одного заведения
+        OrganizationAdmin.objects.filter(user=user, deleted_at__isnull=True).update(
+            is_active=False, deactivated_at=now, deleted_at=now,
         )
         membership = OrganizationAdmin.objects.create(
-            organization=organization, user=user, created_by=request.user, is_active=True
+            organization=organization, user=user, created_by=request.user, is_active=True,
+            position=EmployeePosition.ADMIN, full_name=user.full_name,
         )
 
         log_action(
@@ -309,12 +322,22 @@ class OrganizationAdminView(DirectorBaseView):
         }, status=status.HTTP_201_CREATED)
 
     def delete(self, request, pk):
-        membership = OrganizationAdmin.objects.filter(organization_id=pk, is_active=True).first()
+        membership = (
+            OrganizationAdmin.objects.filter(
+                organization_id=pk, is_active=True, deleted_at__isnull=True,
+                position=EmployeePosition.ADMIN,
+            ).select_related('user').order_by('created_at').first()
+        )
         if membership is None:
             raise NotFoundError(message='Активный администратор не найден')
+        now = timezone.now()
         membership.is_active = False
-        membership.deactivated_at = timezone.now()
-        membership.save(update_fields=['is_active', 'deactivated_at', 'updated_at'])
+        membership.deactivated_at = now
+        membership.deleted_at = now
+        membership.save(update_fields=['is_active', 'deactivated_at', 'deleted_at', 'updated_at'])
+
+        from apps.organizations.employees import revoke_business_sessions
+        revoke_business_sessions(membership.user)
 
         log_action(
             AuditAction.ADMIN_RESET, actor=request.user, request=request,

@@ -66,12 +66,18 @@ def test_history_labels_are_localized(visit_admin_api, user_api, client_user):
     response = user_api.get('/api/v1/me/transactions')
     assert response.status_code == 200
     labels = [item['label'] for item in response.data['data']]
-    assert '+1 посещение' in labels
+    assert 'Отметка добавлена' in labels
+    visit = [item for item in response.data['data'] if item['type'] == 'VISIT_EARN'][0]
+    assert visit['amount'] == 1
 
     client_user.language = 'ky'
     client_user.save(update_fields=['language'])
     ky_response = user_api.get('/api/v1/me/transactions')
-    assert '+1 баруу' in [item['label'] for item in ky_response.data['data']]
+    assert 'Белги кошулду' in [item['label'] for item in ky_response.data['data']]
+
+    # Accept-Language важнее языка профиля
+    ru_response = user_api.get('/api/v1/me/transactions', HTTP_ACCEPT_LANGUAGE='ru')
+    assert 'Отметка добавлена' in [item['label'] for item in ru_response.data['data']]
 
 
 def test_cashback_history_shows_amounts(cashback_admin_api, user_api, client_user):
@@ -82,7 +88,8 @@ def test_cashback_history_shows_amounts(cashback_admin_api, user_api, client_use
     earn = [item for item in response.data['data'] if item['type'] == 'CASHBACK_EARN'][0]
     assert earn['amount'] == 50 * SOM
     assert earn['amount_som'] == '50.00'
-    assert earn['label'] == '+50.00 сом'
+    assert earn['label'] == 'Начисление бонусов'
+    assert earn['cash_paid'] == 1000 * SOM
 
 
 def test_my_cashback_shows_lots_with_expiry(user_api, client_user, cashback_org):

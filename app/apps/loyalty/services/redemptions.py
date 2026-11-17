@@ -29,9 +29,10 @@ from apps.loyalty.services.state import (
     ensure_client,
     ensure_organization_operational,
     lock_state,
+    operation_fields,
 )
 from apps.notifications.models import NotificationEvent
-from apps.notifications.services import notify_user
+from apps.notifications.services import notify_staff, notify_user
 from apps.organizations.models import LoyaltyType
 
 
@@ -40,7 +41,8 @@ def _ttl():
 
 
 @transaction.atomic
-def create_gift_request(*, user, organization, gift_id, admin, idempotency_key='', request=None):
+def create_gift_request(*, user, organization, gift_id, admin, idempotency_key='', request=None,
+                        employee=None, service=None):
     ensure_client(user)
     ensure_organization_operational(organization, expected_type=LoyaltyType.VISIT)
 
@@ -66,6 +68,8 @@ def create_gift_request(*, user, organization, gift_id, admin, idempotency_key='
         status=RedemptionStatus.PENDING,
         expires_at=_ttl(),
         created_by_admin=admin,
+        created_by_employee=employee,
+        service=service,
         idempotency_key=idempotency_key or '',
         metadata={'gift_title_ru': gift.title_ru, 'gift_title_ky': gift.title_ky},
     )
@@ -80,14 +84,17 @@ def create_gift_request(*, user, organization, gift_id, admin, idempotency_key='
     )
     notify_user(
         user, NotificationEvent.REDEMPTION_REQUESTED, organization=organization,
-        context={'redemption_id': str(redemption.id), 'subject': gift.title(user.language), 'type': 'GIFT'},
+        context={
+            'redemption_id': str(redemption.id), 'subject': gift.title(user.language), 'type': 'GIFT',
+            'expires_at': redemption.expires_at.isoformat(), 'spend_amount': 0,
+        },
     )
     return redemption
 
 
 @transaction.atomic
 def create_cashback_request(*, user, organization, purchase_total, spend_amount,
-                            admin, idempotency_key='', request=None):
+                            admin, idempotency_key='', request=None, employee=None, service=None):
     ensure_client(user)
     ensure_organization_operational(organization, expected_type=LoyaltyType.CASHBACK)
 
@@ -114,6 +121,8 @@ def create_cashback_request(*, user, organization, purchase_total, spend_amount,
         status=RedemptionStatus.PENDING,
         expires_at=_ttl(),
         created_by_admin=admin,
+        created_by_employee=employee,
+        service=service,
         idempotency_key=idempotency_key or '',
         metadata={'program': quote_data['program']},
     )
@@ -136,6 +145,8 @@ def create_cashback_request(*, user, organization, purchase_total, spend_amount,
             'subject': f'списание {redemption.spend_amount / 100:.2f}',
             'type': 'CASHBACK',
             'amount_tiyin': redemption.spend_amount,
+            'expires_at': redemption.expires_at.isoformat(),
+            'spend_amount': redemption.spend_amount,
         },
     )
     return redemption
@@ -201,6 +212,8 @@ def confirm(*, redemption_id, user, request=None):
             amount=None,
             status=TransactionStatus.COMPLETED,
             metadata={'gift_id': str(gift.id), 'redemption_id': str(redemption.id)},
+            # Бесплатный визит в выручку не попадает: cash_paid пустой
+            **operation_fields(service=redemption.service, employee=redemption.created_by_employee),
         )
         gift.status = GiftStatus.USED
         gift.used_at = timezone.now()
@@ -227,8 +240,12 @@ def confirm(*, redemption_id, user, request=None):
     )
     notify_user(
         redemption.user, NotificationEvent.REDEMPTION_CONFIRMED, organization=organization,
-        context={'redemption_id': str(redemption.id), 'type': redemption.type},
+        context={
+            'redemption_id': str(redemption.id), 'type': redemption.type,
+            'transaction_id': redemption.result_transactions[0] if redemption.result_transactions else '',
+        },
     )
+    _notify_creator(redemption, NotificationEvent.REDEMPTION_CONFIRMED)
     return _serialize_result(redemption), True
 
 
@@ -266,8 +283,9 @@ def reject(*, redemption_id, user, reason='', request=None):
     notify_user(
         redemption.user, NotificationEvent.REDEMPTION_REJECTED,
         organization=redemption.organization,
-        context={'redemption_id': str(redemption.id)},
+        context={'redemption_id': str(redemption.id), 'reason': reason or ''},
     )
+    _notify_creator(redemption, NotificationEvent.REDEMPTION_REJECTED, reason=reason or 'REJECTED')
     return _serialize_result(redemption), True
 
 
@@ -298,7 +316,27 @@ def cancel_by_admin(*, redemption_id, organization, admin, reason='', request=No
         entity_type='RedemptionRequest', entity_id=redemption.id,
         organization=organization, reason=reason,
     )
+    notify_user(
+        redemption.user, NotificationEvent.REDEMPTION_REJECTED, organization=organization,
+        context={'redemption_id': str(redemption.id), 'reason': reason or 'CANCELLED'},
+    )
     return redemption
+
+
+def _notify_creator(redemption, event, reason=''):
+    """Сотруднику, создавшему запрос, — на устройство Business (9.4)."""
+    employee = redemption.created_by_employee
+    if employee is None:
+        return
+    customer = redemption.user
+    context = {
+        'redemption_id': str(redemption.id),
+        'customer_id': str(customer.id),
+        'customer_name': customer.full_name or customer.phone,
+    }
+    if reason:
+        context['reason'] = reason
+    notify_staff(employee.user, event, organization=redemption.organization, context=context)
 
 
 def _release_gift(redemption):
@@ -316,6 +354,12 @@ def _expire(redemption):
     redemption.resolved_at = timezone.now()
     redemption.save(update_fields=['status', 'resolved_at', 'updated_at'])
     _release_gift(redemption)
+    # Покупателю — «запрос истёк», сотруднику — чтобы экран ожидания закрылся
+    notify_user(
+        redemption.user, NotificationEvent.REDEMPTION_REJECTED, organization=redemption.organization,
+        context={'redemption_id': str(redemption.id), 'reason': 'EXPIRED'},
+    )
+    _notify_creator(redemption, NotificationEvent.REDEMPTION_REJECTED, reason='EXPIRED')
 
 
 def expire_pending(*, now=None, batch_size=500):

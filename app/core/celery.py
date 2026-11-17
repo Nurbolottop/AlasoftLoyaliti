@@ -31,4 +31,13 @@ app.conf.beat_schedule = {
         'task': 'common.cleanup_idempotency_records',
         'schedule': crontab(minute=30, hour=3),
     },
+    'cleanup-notification-feed': {
+        'task': 'notifications.cleanup_feed',
+        'schedule': crontab(minute=45, hour=3),
+    },
+    # 21:30 по Бишкеку (UTC+6); планировщик работает в UTC
+    'daily-summary': {
+        'task': 'loyalty.daily_summary',
+        'schedule': crontab(minute=30, hour=15),
+    },
 }

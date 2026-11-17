@@ -124,11 +124,14 @@ class Command(BaseCommand):
         user.set_pin(pin)
         user.save()
 
-        OrganizationAdmin.objects.filter(user=user, is_active=True).exclude(
+        from django.utils import timezone
+
+        now = timezone.now()
+        OrganizationAdmin.objects.filter(user=user, deleted_at__isnull=True).exclude(
             organization=organization
-        ).update(is_active=False)
+        ).update(is_active=False, deactivated_at=now, deleted_at=now)
         OrganizationAdmin.objects.get_or_create(
-            organization=organization, user=user,
-            defaults={'created_by': director, 'is_active': True},
+            organization=organization, user=user, deleted_at__isnull=True,
+            defaults={'created_by': director, 'is_active': True, 'full_name': name},
         )
         return user

@@ -18,15 +18,18 @@ class PushSendError(Exception):
 class BasePushProvider:
     name = 'base'
 
-    def send(self, token: str, title: str, body: str, data: dict) -> str:
+    def send(self, token: str, title: str, body: str, data: dict, *, silent=False,
+             high_priority=False, channel='default', badge=None) -> str:
         raise NotImplementedError
 
 
 class ConsolePushProvider(BasePushProvider):
     name = 'console'
 
-    def send(self, token: str, title: str, body: str, data: dict) -> str:
-        logger.info('PUSH → %s | %s | %s | %s', token[:12], title, body, data)
+    def send(self, token: str, title: str, body: str, data: dict, *, silent=False,
+             high_priority=False, channel='default', badge=None) -> str:
+        logger.info('PUSH → %s | %s | %s | %s | silent=%s high=%s', token[:12], title, body, data,
+                    silent, high_priority)
         return 'console'
 
 
@@ -49,19 +52,38 @@ class FcmPushProvider(BasePushProvider):
         credentials.refresh(GoogleRequest())
         return credentials.token
 
-    def send(self, token: str, title: str, body: str, data: dict) -> str:
+    def send(self, token: str, title: str, body: str, data: dict, *, silent=False,
+             high_priority=False, channel='default', badge=None) -> str:
         if not settings.FCM_PROJECT_ID or not settings.FCM_CREDENTIALS_FILE:
             raise PushSendError('FCM не настроен (FCM_PROJECT_ID/FCM_CREDENTIALS_FILE)')
 
         url = f'https://fcm.googleapis.com/v1/projects/{settings.FCM_PROJECT_ID}/messages:send'
-        payload = {
-            'message': {
-                'token': token,
-                'notification': {'title': title, 'body': body},
-                'data': {k: json.dumps(v) if isinstance(v, (dict, list)) else str(v)
-                         for k, v in (data or {}).items()},
-            }
+        message = {
+            'token': token,
+            'data': {k: json.dumps(v) if isinstance(v, (dict, list)) else str(v)
+                     for k, v in (data or {}).items()},
         }
+        if silent:
+            # Тихое событие: только data, iOS будит приложение в фоне
+            message['android'] = {'priority': 'high' if high_priority else 'normal'}
+            message['apns'] = {
+                'headers': {'apns-push-type': 'background', 'apns-priority': '5'},
+                'payload': {'aps': {'content-available': 1}},
+            }
+        else:
+            message['notification'] = {'title': title, 'body': body}
+            message['android'] = {
+                'priority': 'high' if high_priority else 'normal',
+                'notification': {'channel_id': channel},
+            }
+            aps = {'sound': 'default'}
+            if badge is not None:
+                aps['badge'] = int(badge)
+            message['apns'] = {
+                'headers': {'apns-priority': '10' if high_priority else '5'},
+                'payload': {'aps': aps},
+            }
+        payload = {'message': message}
         try:
             response = requests.post(
                 url,
