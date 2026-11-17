@@ -71,6 +71,8 @@ class OrganizationListCreateView(DirectorBaseView):
             Organization.objects.all()
             .select_related('category', 'visit_program', 'cashback_program')
             .annotate(customers_count=Count('user_states', distinct=True))
+            # Агрегат отключает сортировку модели — без неё страницы перемешиваются
+            .order_by('name', 'id')
         )
         status_filter = request.query_params.get('status')
         if status_filter:
