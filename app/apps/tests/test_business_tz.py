@@ -486,3 +486,9 @@ def test_cashback_earn_reverse_flag(cashback_admin_api, client_user):
     items = cashback_admin_api.get('/api/v1/admin/transactions').data['data']
     assert [i for i in items if i['id'] == tx_id][0]['can_reverse'] is True
     assert Transaction.objects.get(pk=tx_id).type == TransactionType.CASHBACK_EARN
+
+
+def test_admin_endpoints_require_authentication(api):
+    response = api.get('/api/v1/admin/overview')
+    assert response.status_code == 401
+    assert response.data['error']['code'] == 'AUTHENTICATION_REQUIRED'

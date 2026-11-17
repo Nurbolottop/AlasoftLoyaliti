@@ -59,7 +59,9 @@ class IsOrganizationStaff(BasePermission):
 
     def has_permission(self, request, view):
         user = request.user
-        if not (user and user.is_authenticated) or user.role == 'DIRECTOR':
+        if not (user and user.is_authenticated):
+            return False   # DRF ответит 401: приложение обновит токен или выйдет
+        if user.role == 'DIRECTOR':
             raise _denied(ROLE_ADMIN, 'Доступно только сотрудникам заведения')
 
         membership = user.staff_membership
