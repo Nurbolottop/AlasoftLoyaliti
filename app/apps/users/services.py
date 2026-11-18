@@ -708,7 +708,7 @@ def anonymize_user(*, user, request=None, actor=None, notify=True):
     #    что удалены, новая запись снова привязалась бы к удаляемому.
     if notify:
         send_sms(old_phone, NotificationEvent.SECURITY_ALERT,
-                 context={'subject': 'аккаунт PAYDA удалён'},
+                 context={'subject': 'аккаунт TOPTO удалён'},
                  language=user.language, user=None)
 
     # 4. Обезличить.

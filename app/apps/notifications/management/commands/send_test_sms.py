@@ -16,7 +16,7 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser):
         parser.add_argument('phone')
-        parser.add_argument('--text', default='PAYDA: проверка отправки SMS')
+        parser.add_argument('--text', default='TOPTO: проверка отправки SMS')
 
     def handle(self, *args, **options):
         try:

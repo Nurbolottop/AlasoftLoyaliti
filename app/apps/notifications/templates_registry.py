@@ -61,8 +61,8 @@ PUSH_TEMPLATES = {
         'ky': ('Күндүн жыйынтыгы — {organization}', 'Киреше {revenue} сом, кардарлар {visitors}, жаңы {new_customers}'),
     },
     NotificationEvent.SECURITY_ALERT: {
-        'ru': ('PAYDA', '{subject}'),
-        'ky': ('PAYDA', '{subject}'),
+        'ru': ('TOPTO', '{subject}'),
+        'ky': ('TOPTO', '{subject}'),
     },
 }
 
@@ -84,12 +84,12 @@ BUSINESS_PUSH_TEMPLATES = {
 
 SMS_TEMPLATES = {
     NotificationEvent.OTP: {
-        'ru': 'PAYDA: код подтверждения {code}. Никому его не сообщайте.',
-        'ky': 'PAYDA: ырастоо коду {code}. Эч кимге айтпаңыз.',
+        'ru': 'TOPTO: код подтверждения {code}. Никому его не сообщайте.',
+        'ky': 'TOPTO: ырастоо коду {code}. Эч кимге айтпаңыз.',
     },
     NotificationEvent.SECURITY_ALERT: {
-        'ru': 'PAYDA: {subject}',
-        'ky': 'PAYDA: {subject}',
+        'ru': 'TOPTO: {subject}',
+        'ky': 'TOPTO: {subject}',
     },
 }
 
@@ -107,7 +107,7 @@ def _normalize(context):
         data['amount'] = tiyin_to_som_str(data['amount_tiyin']).removesuffix('.00')
     if 'revenue_tiyin' in data:
         data['revenue'] = tiyin_to_som_str(data['revenue_tiyin']).removesuffix('.00')
-    data.setdefault('organization', 'PAYDA')
+    data.setdefault('organization', 'TOPTO')
     data.setdefault('subject', '')
     return data
 
@@ -117,7 +117,7 @@ def render_push(event, language, context, app=NotificationApp.CLIENT):
     if app == NotificationApp.BUSINESS:
         templates = BUSINESS_PUSH_TEMPLATES.get(event, {})
     templates = templates or PUSH_TEMPLATES.get(event, {})
-    title_tpl, body_tpl = templates.get(language) or templates.get('ru') or ('PAYDA', '')
+    title_tpl, body_tpl = templates.get(language) or templates.get('ru') or ('TOPTO', '')
     data = _normalize(context)
     return title_tpl.format_map(data).strip(), body_tpl.format_map(data).strip()
 

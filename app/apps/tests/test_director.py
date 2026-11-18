@@ -157,7 +157,7 @@ def test_admin_statistics_scoped_to_own_organization(visit_admin_api, client_use
     assert response.data['data']['visits'] == 1
 
 
-# --- данные для новой панели (макеты PAYDA Admin) ---
+# --- данные для новой панели (макеты TOPTO Admin) ---
 
 def test_dashboard_has_daily_series_for_period(director_api, client_user, visit_org):
     response = director_api.get('/api/v1/director/dashboard?date_from=2020-01-01&date_to=2020-01-07')

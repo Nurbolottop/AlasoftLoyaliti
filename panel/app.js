@@ -1,4 +1,4 @@
-/* PAYDA Admin — панель управления платформой.
+/* TOPTO Admin — панель управления платформой.
    Отдельное веб-приложение поверх Director API (ТЗ §16, ТЗ backend §1).
    Своей бизнес-логики не содержит: суммы, лимиты и права считает сервер. */
 
@@ -173,11 +173,11 @@ function logoMark(hole = '#fff', cls = 'mark') {
     <defs><linearGradient id="${id}" x1="0" y1="0" x2="1" y2="1">
       <stop offset="0" stop-color="#D27BFF"/><stop offset=".55" stop-color="#9D4DFF"/><stop offset="1" stop-color="#6A1BF2"/>
     </linearGradient></defs>
-    <path d="M4 10a6 6 0 0 1 6-6h14a18 18 0 0 1 0 36h-6v8a6 6 0 0 1-12 0z" fill="url(#${id})"/>
-    <circle cx="24" cy="22" r="7.5" fill="${hole}"/>
+    <path d="M8 4h32a7 7 0 0 1 0 14H31v31a7 7 0 0 1-14 0V18H8A7 7 0 0 1 8 4z" fill="url(#${id})"/>
+    <circle cx="38" cy="11" r="3.2" fill="${hole}" opacity=".9"/>
   </svg>`;
 }
-const brandHtml = (hole) => `${logoMark(hole)}<div class="name"><b>PAYDA</b><span>Admin</span></div>`;
+const brandHtml = (hole) => `${logoMark(hole)}<div class="name"><b>TOPTO</b><span>Admin</span></div>`;
 const phoneArt = () => `<div class="phone-art"><div class="phone-card">${logoMark('#F6F0FF', 'ic-logo')}</div></div>`;
 const wave = (id) => `<svg class="wave" viewBox="0 0 600 200" preserveAspectRatio="none" aria-hidden="true">
   <defs><linearGradient id="${id}" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#C9A8FF" stop-opacity=".55"/><stop offset="1" stop-color="#7C3AED" stop-opacity=".95"/></linearGradient></defs>
@@ -297,7 +297,7 @@ function addDays(d, n) { const r = new Date(d); r.setDate(r.getDate() + n); retu
 
 const period = (() => {
   let saved = null;
-  try { saved = JSON.parse(safeStorage.get('payda_period')); } catch { /* пусто */ }
+  try { saved = JSON.parse(safeStorage.get('topto_period')); } catch { /* пусто */ }
   const state = { preset: '30', from: '', to: '' };
   if (saved?.preset === 'custom' && saved.from && saved.to) Object.assign(state, saved);
   else if (saved?.preset && PRESETS[saved.preset]) state.preset = saved.preset;
@@ -307,7 +307,7 @@ function setPeriod(preset, from, to) {
   period.preset = preset;
   if (preset !== 'custom') [from, to] = PRESETS[preset][1]().map(isoDate);
   period.from = from; period.to = to;
-  safeStorage.set('payda_period', JSON.stringify(period));
+  safeStorage.set('topto_period', JSON.stringify(period));
 }
 setPeriod(period.preset, period.from, period.to);
 const periodParams = () => ({ date_from: period.from, date_to: period.to });
@@ -725,12 +725,12 @@ async function renderDashboard() {
 
   return {
     html: `
-      ${pageHead({ title: 'Главная', sub: 'Обзор платформы Payda', actions: rangeButton() })}
+      ${pageHead({ title: 'Главная', sub: 'Обзор платформы TOPTO', actions: rangeButton() })}
       <div class="hero">
         ${wave('hw')}
         ${phoneArt()}
-        <h2>Добро пожаловать в Payda Admin! 👋</h2>
-        <p>Общее состояние платформы: пользователи и организации, которые работают с Payda.</p>
+        <h2>Добро пожаловать в TOPTO Admin! 👋</h2>
+        <p>Общее состояние платформы: пользователи и организации, которые работают с TOPTO.</p>
       </div>
       <div class="stats">
         ${statCard({ icon: 'users', label: 'Активных пользователей', value: num(s.users_active), delta: deltaUp(growthText), tint: 'violet' })}
@@ -753,7 +753,7 @@ async function renderDashboard() {
         </div>
         <div class="card promo">
           ${wave('pw')}
-          <h3>Платформа Payda</h3>
+          <h3>Платформа TOPTO</h3>
           <p>Управление лояльностью<br>и клиентами для бизнеса</p>
           ${phoneArt()}
         </div>
@@ -783,7 +783,7 @@ async function renderOrganizations() {
 
   return {
     html: `
-      ${pageHead({ title: 'Организации', sub: 'Управление всеми организациями платформы Payda', actions: rangeButton() })}
+      ${pageHead({ title: 'Организации', sub: 'Управление всеми организациями платформы TOPTO', actions: rangeButton() })}
       <div class="stats">
         ${statCard({ icon: 'store', label: 'Всего организаций', value: num(s.organizations_total), delta: deltaUp('+' + num(s.organizations_new_in_period)) })}
         ${statCard({ icon: 'check-circle', tone: 'green', label: 'Активные', value: num(s.organizations_active), delta: deltaPlain('принимают клиентов') })}
@@ -1449,7 +1449,7 @@ async function renderTransactions() {
   const count = (r) => r.meta?.pagination?.total_items ?? 0;
   return {
     html: `
-      ${pageHead({ title: 'Транзакции', sub: 'Все операции в системе Payda.', actions: rangeButton() })}
+      ${pageHead({ title: 'Транзакции', sub: 'Все операции в системе TOPTO.', actions: rangeButton() })}
       <div class="stats">
         ${statCard({ icon: 'layers', label: 'Всего операций', value: num(total) })}
         ${statCard({ icon: 'check-circle', tone: 'green', label: 'Успешные', value: num(count(done)) })}
@@ -1484,7 +1484,7 @@ async function renderUsers() {
   ]);
   return {
     html: `
-      ${pageHead({ title: 'Клиенты', sub: 'Все клиенты, зарегистрированные в Payda.' })}
+      ${pageHead({ title: 'Клиенты', sub: 'Все клиенты, зарегистрированные в TOPTO.' })}
       <div class="stats">
         ${statCard({ icon: 'users', label: 'Всего клиентов', value: num(s.users_total) })}
         ${statCard({ icon: 'check-circle', tone: 'green', label: 'Активные', value: num(s.users_active) })}

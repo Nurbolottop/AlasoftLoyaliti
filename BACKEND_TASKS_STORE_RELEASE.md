@@ -1,4 +1,4 @@
-# PAYDA — ТЗ бэкенду: что нужно для выпуска в Google Play и App Store
+# TOPTO — ТЗ бэкенду: что нужно для выпуска в Google Play и App Store
 
 Приложение готово к публикации: пакет `com.zeahouse.payda`, версия 1.0.0,
 подпись и сборка настроены, AAB собирается. Осталось три вещи, которые целиком
@@ -311,7 +311,7 @@ def confirm_account_deletion(*, user, challenge_id, code, request=None):
 
     # 3. Уведомить, пока номер ещё известен.
     send_sms(old_phone, NotificationEvent.SECURITY_ALERT,
-             context={'subject': 'аккаунт PAYDA удалён'},
+             context={'subject': 'аккаунт TOPTO удалён'},
              language=user.language, user=None)
 
     # 4. Обезличить.
@@ -482,7 +482,7 @@ urlpatterns = [
 
 ## Часть 3. Тестовый номер для ревьюеров магазинов — ТРЕБУЕТСЯ
 
-Вход в PAYDA возможен только по SMS-коду на реальный номер. Ревьюеры Apple и
+Вход в TOPTO возможен только по SMS-коду на реальный номер. Ревьюеры Apple и
 Google находятся в США, кыргызскую симку в руки не возьмут и SMS не получат.
 Apple отклоняет такое по Guideline 2.1 практически всегда, формулировка —
 «we were unable to sign in with the provided credentials».
